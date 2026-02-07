@@ -11,99 +11,126 @@ export function getBrandConfig(): BrandConfig {
   const name = process.env.BRAND_NAME || 'Apres Feels';
   const description =
     process.env.BRAND_DESCRIPTION ||
-    'Premium skincare brand focused on natural ingredients and self-care rituals';
-  const toneStr = process.env.BRAND_TONE || 'warm, approachable, luxurious yet accessible, empowering';
+    'Premium and luxury skincare, muscle care, muscle recovery, and body recovery company for winter sports enthusiasts. Geared towards individuals engaged in skiing, snowboarding, cross country skiing, hiking, and mountaineering, as well as the associated après scenes and social events.';
+  const toneStr = process.env.BRAND_TONE || 'work hard play hard, adventurous, fun, premium, luxury';
   const targetAudience =
     process.env.BRAND_TARGET_AUDIENCE ||
-    'Women 25-45 interested in self-care, natural beauty, and wellness';
+    'Males and females aged 28-55 passionate about winter sports and mountain lifestyle';
 
   return {
     name,
     description,
     tone: toneStr.split(',').map((t) => t.trim()),
     targetAudience,
-    keywords: process.env.BRAND_KEYWORDS?.split(',').map((k) => k.trim()),
+    keywords: process.env.BRAND_KEYWORDS?.split(',').map((k) => k.trim()) || [
+      'skiing',
+      'snowboarding',
+      'après-ski',
+      'mountain lifestyle',
+      'muscle recovery',
+      'skincare',
+      'winter sports',
+      'luxury',
+      'premium',
+      'natural ingredients',
+    ],
   };
 }
 
 /**
  * Default products for demonstration
+ * These represent Apres Feels' premium winter sports recovery line
  */
 export const sampleProducts: Product[] = [
   {
     id: 'prod-001',
-    name: 'Hydra Glow Serum',
+    name: 'Alpine Recovery Muscle Balm',
     description:
-      'A lightweight, fast-absorbing hyaluronic acid serum that delivers intense hydration for a dewy, plump complexion.',
-    keyIngredients: ['Hyaluronic Acid', 'Vitamin B5', 'Niacinamide', 'Aloe Vera'],
+      'A luxurious, fast-absorbing muscle recovery balm crafted for athletes who push their limits on the mountain. Deeply penetrating formula soothes tired muscles after intense ski days.',
+    keyIngredients: ['Arnica Montana', 'Menthol', 'Eucalyptus Oil', 'Shea Butter', 'CBD'],
     benefits: [
-      'Deep hydration',
-      'Plumps fine lines',
-      'Improves skin texture',
-      'Suitable for all skin types',
+      'Rapid muscle recovery',
+      'Soothes post-ski soreness',
+      'Deep tissue penetration',
+      'Natural anti-inflammatory',
     ],
-    price: 48,
-    category: 'Serums',
+    price: 68,
+    category: 'Muscle Care',
   },
   {
     id: 'prod-002',
-    name: 'Vitamin C Brightening Elixir',
+    name: 'Summit Shield Face Cream',
     description:
-      'A potent vitamin C serum that brightens skin tone, fades dark spots, and protects against environmental damage.',
-    keyIngredients: ['20% Vitamin C', 'Vitamin E', 'Ferulic Acid', 'Green Tea Extract'],
+      'Premium protective face cream designed for harsh mountain conditions. Shields skin from wind, cold, and UV exposure while delivering deep hydration.',
+    keyIngredients: ['Vitamin E', 'Squalane', 'Arctic Cloudberry', 'Ceramides', 'Zinc Oxide'],
     benefits: [
-      'Brightens skin',
-      'Fades dark spots',
-      'Antioxidant protection',
-      'Evens skin tone',
+      'Cold weather protection',
+      'Wind barrier formula',
+      'Intense hydration',
+      'UV defense',
     ],
-    price: 65,
-    category: 'Serums',
+    price: 85,
+    category: 'Skincare',
   },
   {
     id: 'prod-003',
-    name: 'Gentle Cloud Cleanser',
+    name: 'Après Glow Body Oil',
     description:
-      'A creamy, pH-balanced cleanser that removes makeup and impurities while maintaining the skin barrier.',
-    keyIngredients: ['Ceramides', 'Centella Asiatica', 'Glycerin', 'Chamomile'],
+      'A silky, aromatic body oil that transforms your post-mountain ritual into a luxury spa experience. Nourishes skin while easing muscle tension.',
+    keyIngredients: ['Jojoba Oil', 'Lavender', 'Vitamin E', 'Rosehip', 'Chamomile'],
     benefits: [
-      'Gentle cleansing',
-      'Preserves skin barrier',
-      'Removes makeup',
-      'Calms sensitive skin',
+      'Deep skin nourishment',
+      'Relaxing aromatherapy',
+      'Muscle tension relief',
+      'Radiant skin glow',
     ],
-    price: 32,
-    category: 'Cleansers',
+    price: 72,
+    category: 'Body Care',
   },
   {
     id: 'prod-004',
-    name: 'Overnight Repair Mask',
+    name: 'Powder Day Lip Treatment',
     description:
-      'A rich, restorative sleeping mask that works overnight to repair and rejuvenate tired, stressed skin.',
-    keyIngredients: ['Retinol', 'Peptides', 'Squalane', 'Bakuchiol'],
+      'Intensive lip repair and protection for extreme mountain conditions. Heals chapped, windburned lips while providing all-day moisture.',
+    keyIngredients: ['Beeswax', 'Manuka Honey', 'Vitamin E', 'Shea Butter', 'SPF 30'],
     benefits: [
-      'Overnight repair',
-      'Reduces fine lines',
-      'Improves firmness',
-      'Wake up glowing',
+      'Heals cracked lips',
+      'Wind protection',
+      'Long-lasting moisture',
+      'Sun protection',
     ],
-    price: 58,
-    category: 'Masks',
+    price: 28,
+    category: 'Skincare',
   },
   {
     id: 'prod-005',
-    name: 'Daily Defense SPF 50',
+    name: 'Peak Performance Recovery Soak',
     description:
-      'A lightweight, non-greasy mineral sunscreen that provides broad-spectrum protection without white cast.',
-    keyIngredients: ['Zinc Oxide', 'Vitamin E', 'Green Tea', 'Hyaluronic Acid'],
+      'A mineral-rich bath soak designed for serious athletes. Combines therapeutic salts and essential oils to accelerate recovery after demanding mountain days.',
+    keyIngredients: ['Epsom Salt', 'Dead Sea Salt', 'Arnica', 'Peppermint', 'Magnesium'],
     benefits: [
-      'SPF 50 protection',
-      'No white cast',
-      'Hydrating formula',
-      'Works under makeup',
+      'Muscle relaxation',
+      'Reduces inflammation',
+      'Detoxifying minerals',
+      'Mental relaxation',
     ],
-    price: 42,
-    category: 'Sun Protection',
+    price: 54,
+    category: 'Recovery',
+  },
+  {
+    id: 'prod-006',
+    name: 'Frostbite Defense Hand Cream',
+    description:
+      'Ultra-rich hand cream that protects and repairs hands exposed to freezing temperatures and harsh glove friction. Non-greasy formula absorbs quickly.',
+    keyIngredients: ['Shea Butter', 'Glycerin', 'Oat Extract', 'Vitamin B5', 'Beeswax'],
+    benefits: [
+      'Extreme cold protection',
+      'Crack and split repair',
+      'Non-greasy absorption',
+      'All-day moisture barrier',
+    ],
+    price: 38,
+    category: 'Skincare',
   },
 ];
 
@@ -138,6 +165,6 @@ export function getSocialHandles(): Record<string, string> {
 export function getContentThemes(): string[] {
   const themes =
     process.env.CONTENT_THEMES ||
-    'skincare routines,ingredient spotlights,self-care tips,behind the scenes,customer stories';
+    'ski culture,ski travel,après scenes and parties,ski fitness,ski recovery,ski athletes and influencers,ski destinations and resorts,ski events,ski fashion,ski movies and media,skincare principles,natural healing,natural ingredients';
   return themes.split(',').map((t) => t.trim());
 }
