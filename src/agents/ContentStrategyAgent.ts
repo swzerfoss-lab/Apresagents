@@ -183,7 +183,7 @@ Ensure variety in content types and categories while maintaining brand consisten
     theme: string,
     platforms: SocialPlatform[],
     count: number = 5
-  ): Promise<AgentResponse<string[]>> {
+  ): Promise<AgentResponse<string>> {
     const prompt = `Generate ${count} creative content ideas for the theme: "${theme}"
 
 Target platforms: ${platforms.join(', ')}

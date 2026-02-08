@@ -232,3 +232,63 @@ export interface TrendOpportunity {
   suggestedContent: string;
   urgency: 'high' | 'medium' | 'low';
 }
+
+// Video content types
+export interface VideoGenerationRequest {
+  topic: string;
+  platform: SocialPlatform;
+  duration: '15s' | '30s' | '60s';
+  style?: 'cinematic' | 'documentary' | 'dynamic' | 'lifestyle' | 'commercial';
+  product?: Product;
+  outputDirectory?: string;
+}
+
+export interface GeneratedVideoContent {
+  id: string;
+  title: string;
+  platform: SocialPlatform;
+  duration: string;
+  concept: {
+    hook: string;
+    narrative: string;
+    visualStyle: string;
+    audioDirection: string;
+    callToAction: string;
+  };
+  scenes: Array<{
+    sceneNumber: number;
+    timestamp: string;
+    visual: string;
+    action: string;
+    text?: string;
+    audio?: string;
+  }>;
+  veoPrompt: string;
+  videoUrl?: string;
+  videoFilePath?: string;
+  metadata: VideoMetadata;
+}
+
+export interface VideoMetadata {
+  createdAt: Date;
+  agentUsed: string;
+  resolution: string;
+  aspectRatio: string;
+  hasAudio: boolean;
+  modelUsed: string;
+}
+
+export interface VideoCampaign {
+  id: string;
+  name: string;
+  theme: string;
+  videos: GeneratedVideoContent[];
+  releaseSchedule: Array<{
+    week: number;
+    videoId: string;
+    platform: SocialPlatform;
+    suggestedDate?: string;
+  }>;
+  totalDuration: string;
+  platforms: SocialPlatform[];
+}

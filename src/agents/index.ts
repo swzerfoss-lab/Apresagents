@@ -5,6 +5,7 @@ export { BaseAgent } from './BaseAgent.js';
 export { ContentStrategyAgent } from './ContentStrategyAgent.js';
 export { CopywritingAgent } from './CopywritingAgent.js';
 export { VisualContentAgent } from './VisualContentAgent.js';
+export { VideoContentAgent } from './VideoContentAgent.js';
 export { AdCampaignAgent } from './AdCampaignAgent.js';
 export { BrandVoiceAgent } from './BrandVoiceAgent.js';
 

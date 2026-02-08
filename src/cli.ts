@@ -4,9 +4,12 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import inquirer from 'inquirer';
-import { SocialMediaManagerAgent } from './agents/index.js';
+import { SocialMediaManagerAgent, VideoContentAgent } from './agents/index.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
 import type { SocialPlatform, CampaignObjective } from './types/index.js';
+
+// Initialize video agent
+const videoAgent = new VideoContentAgent(getBrandConfig());
 
 const program = new Command();
 
@@ -355,6 +358,334 @@ program
         console.log(chalk.gray('\nHashtags:'), result.data.caption.hashtags.map((h) => `#${h}`).join(' '));
       } else {
         console.log(chalk.red('Failed to create video content:'), result.error);
+      }
+    } catch (error) {
+      spinner.stop();
+      console.error(chalk.red('Error:'), error);
+    }
+  });
+
+/**
+ * Veo 3 Video generation command
+ */
+program
+  .command('video-veo')
+  .description('Generate AI video with Google Veo 3')
+  .option('-t, --topic <topic>', 'Video topic or concept')
+  .option('-p, --platform <platform>', 'Platform (instagram, tiktok, facebook, pinterest)', 'instagram')
+  .option('-s, --style <style>', 'Video style (cinematic, documentary, dynamic, lifestyle, commercial)', 'cinematic')
+  .option('--product <productId>', 'Product ID to feature')
+  .option('-d, --duration <duration>', 'Video duration (15s, 30s, 60s)', '30s')
+  .option('-o, --output <directory>', 'Output directory for generated videos')
+  .option('--generate', 'Actually generate the video (requires Gemini API key)')
+  .option('-i, --interactive', 'Interactive mode')
+  .action(async (options) => {
+    let topic = options.topic;
+    let platform = options.platform as SocialPlatform;
+    let style = options.style as 'cinematic' | 'documentary' | 'dynamic' | 'lifestyle' | 'commercial';
+    let duration = options.duration as '15s' | '30s' | '60s';
+    let product = options.product ? sampleProducts.find((p) => p.id === options.product) : undefined;
+
+    if (options.interactive || !topic) {
+      const answers = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'topic',
+          message: 'What should the video be about?',
+          default: topic || 'Epic powder day skiing with après recovery',
+        },
+        {
+          type: 'list',
+          name: 'platform',
+          message: 'Target platform?',
+          choices: ['instagram', 'tiktok', 'facebook', 'pinterest'],
+          default: platform,
+        },
+        {
+          type: 'list',
+          name: 'style',
+          message: 'Video style?',
+          choices: ['cinematic', 'documentary', 'dynamic', 'lifestyle', 'commercial'],
+          default: style,
+        },
+        {
+          type: 'list',
+          name: 'duration',
+          message: 'Video duration?',
+          choices: ['15s', '30s', '60s'],
+          default: duration,
+        },
+        {
+          type: 'list',
+          name: 'product',
+          message: 'Feature a product?',
+          choices: [
+            { name: 'No product', value: null },
+            ...sampleProducts.map((p) => ({ name: `${p.name} ($${p.price})`, value: p.id })),
+          ],
+        },
+        {
+          type: 'confirm',
+          name: 'generate',
+          message: 'Generate actual video with Veo 3?',
+          default: false,
+        },
+      ]);
+
+      topic = answers.topic;
+      platform = answers.platform;
+      style = answers.style;
+      duration = answers.duration;
+      product = answers.product ? sampleProducts.find((p) => p.id === answers.product) : undefined;
+      options.generate = answers.generate;
+    }
+
+    // Check if video generation is available
+    if (options.generate && !videoAgent.isVideoGenerationAvailable()) {
+      console.log(chalk.yellow('\nVideo generation requires GEMINI_API_KEY in your .env file.'));
+      console.log(chalk.gray('Continuing with concept generation only...\n'));
+      options.generate = false;
+    }
+
+    const spinner = ora('Generating video concept with Veo 3...').start();
+
+    try {
+      let result;
+
+      if (product) {
+        // Generate product video
+        result = await videoAgent.generateProductVideo(
+          product,
+          style === 'cinematic' ? 'hero' : style === 'lifestyle' ? 'lifestyle' : 'action-recovery',
+          platform
+        );
+      } else {
+        // Generate general video concept
+        result = await videoAgent.generateVideoConcept(topic, platform, duration, product);
+      }
+
+      if (result.success && result.data) {
+        spinner.text = 'Video concept ready!';
+        spinner.succeed();
+
+        console.log(chalk.green(`\n🎬 Veo 3 Video Concept Generated!\n`));
+        console.log(chalk.blue('Title:'), result.data.title);
+        console.log(chalk.blue('Platform:'), result.data.platform);
+        console.log(chalk.blue('Duration:'), result.data.duration);
+
+        console.log(chalk.yellow('\n--- HOOK ---'));
+        console.log(result.data.hook);
+
+        console.log(chalk.yellow('\n--- NARRATIVE ---'));
+        console.log(result.data.narrative);
+
+        console.log(chalk.yellow('\n--- SCENES ---'));
+        result.data.scenes.forEach((scene) => {
+          console.log(chalk.cyan(`\nScene ${scene.sceneNumber} (${scene.timestamp})`));
+          console.log(chalk.white('Visual:'), scene.visual);
+          console.log(chalk.white('Action:'), scene.action);
+          if (scene.text) console.log(chalk.gray('Text:'), scene.text);
+          if (scene.audio) console.log(chalk.gray('Audio:'), scene.audio);
+        });
+
+        console.log(chalk.yellow('\n--- VISUAL STYLE ---'));
+        console.log(result.data.visualStyle);
+
+        console.log(chalk.yellow('\n--- AUDIO DIRECTION ---'));
+        console.log(result.data.audioDirection);
+
+        console.log(chalk.yellow('\n--- CALL TO ACTION ---'));
+        console.log(result.data.callToAction);
+
+        console.log(chalk.magenta('\n--- VEO 3 PROMPT ---'));
+        console.log(chalk.gray(result.data.veoPrompt));
+
+        // Generate actual video if requested
+        if (options.generate) {
+          console.log();
+          const videoSpinner = ora('Generating video with Veo 3 (this may take a moment)...').start();
+
+          const videoResult = await videoAgent.generateVideo(result.data.veoPrompt, {
+            aspectRatio: platform === 'facebook' ? '16:9' : '9:16',
+            duration: duration === '15s' ? 5 : 8,
+            style,
+            outputDirectory: options.output,
+            withAudio: true,
+          });
+
+          if (videoResult.success && videoResult.data) {
+            videoSpinner.succeed('Video generated successfully!');
+            console.log(chalk.green('\n✨ Video Generated!'));
+            if (videoResult.data.videoUrl) {
+              console.log(chalk.blue('Video URL:'), videoResult.data.videoUrl);
+            }
+            if (videoResult.data.filePath) {
+              console.log(chalk.blue('Saved to:'), videoResult.data.filePath);
+            }
+            console.log(chalk.gray('Duration:'), `${videoResult.data.duration}s`);
+            console.log(chalk.gray('Has Audio:'), videoResult.data.hasAudio ? 'Yes' : 'No');
+          } else {
+            videoSpinner.fail('Video generation failed');
+            console.log(chalk.red('Error:'), videoResult.error);
+          }
+        }
+      } else {
+        spinner.fail('Failed to generate video concept');
+        console.log(chalk.red('Error:'), result.error);
+      }
+    } catch (error) {
+      spinner.fail('Error generating video');
+      console.error(chalk.red('Error:'), error);
+    }
+  });
+
+/**
+ * Video campaign command
+ */
+program
+  .command('video-campaign')
+  .description('Generate a video campaign with multiple Veo 3 concepts')
+  .option('-t, --theme <theme>', 'Campaign theme')
+  .option('-s, --season <season>', 'Season (early-season, peak-season, spring-skiing, off-season)')
+  .option('-n, --count <count>', 'Number of videos', '5')
+  .option('-p, --platforms <platforms>', 'Platforms (comma-separated)', 'instagram,tiktok')
+  .option('-i, --interactive', 'Interactive mode')
+  .action(async (options) => {
+    let theme = options.theme;
+    let season = options.season as 'early-season' | 'peak-season' | 'spring-skiing' | 'off-season' | undefined;
+    let count = parseInt(options.count);
+    let platforms: SocialPlatform[] = options.platforms.split(',') as SocialPlatform[];
+
+    if (options.interactive || (!theme && !season)) {
+      const answers = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'campaignType',
+          message: 'Campaign type?',
+          choices: [
+            { name: 'Seasonal campaign', value: 'seasonal' },
+            { name: 'Custom theme', value: 'custom' },
+          ],
+        },
+        {
+          type: 'list',
+          name: 'season',
+          message: 'Which season?',
+          choices: ['early-season', 'peak-season', 'spring-skiing', 'off-season'],
+          when: (ans) => ans.campaignType === 'seasonal',
+        },
+        {
+          type: 'input',
+          name: 'theme',
+          message: 'Campaign theme?',
+          default: 'Mountain recovery and wellness',
+          when: (ans) => ans.campaignType === 'custom',
+        },
+        {
+          type: 'number',
+          name: 'count',
+          message: 'Number of videos?',
+          default: count,
+          when: (ans) => ans.campaignType === 'custom',
+        },
+        {
+          type: 'checkbox',
+          name: 'platforms',
+          message: 'Target platforms?',
+          choices: ['instagram', 'tiktok', 'facebook', 'pinterest'],
+          default: platforms,
+        },
+      ]);
+
+      theme = answers.theme;
+      season = answers.season;
+      count = answers.count || count;
+      platforms = answers.platforms;
+    }
+
+    const spinner = ora('Generating video campaign...').start();
+
+    try {
+      interface VideoCampaignResult {
+        campaignName: string;
+        theme: string;
+        videos: Array<{
+          title: string;
+          platform: SocialPlatform;
+          duration: string;
+          hook: string;
+          narrative: string;
+          veoPrompt: string;
+        }>;
+        releaseSchedule: Array<{
+          week: number;
+          video: string;
+          platform: SocialPlatform;
+        }>;
+      }
+
+      let result: { success: boolean; data?: VideoCampaignResult; error?: string };
+
+      if (season) {
+        const seasonResult = await videoAgent.generateSeasonalVideoCampaign(season);
+        if (seasonResult.success && seasonResult.data) {
+          result = {
+            success: true,
+            data: {
+              campaignName: seasonResult.data.campaignName,
+              theme: seasonResult.data.theme,
+              videos: seasonResult.data.videos,
+              releaseSchedule: seasonResult.data.releaseSchedule,
+            },
+          };
+        } else {
+          result = { success: false, error: seasonResult.error };
+        }
+      } else {
+        const campaignVideos = await videoAgent.generateCampaignVideos(theme || 'Mountain lifestyle', platforms, count);
+        if (campaignVideos.success && campaignVideos.data) {
+          result = {
+            success: true,
+            data: {
+              campaignName: `${theme} Campaign`,
+              theme: theme || 'Mountain lifestyle',
+              videos: campaignVideos.data,
+              releaseSchedule: campaignVideos.data.map((v, i) => ({
+                week: Math.floor(i / 2) + 1,
+                video: v.title,
+                platform: v.platform,
+              })),
+            },
+          };
+        } else {
+          result = { success: false, error: campaignVideos.error };
+        }
+      }
+
+      spinner.stop();
+
+      if (result.success && result.data) {
+        console.log(chalk.green('\n🎬 Video Campaign Generated!\n'));
+        console.log(chalk.blue('Campaign:'), result.data.campaignName);
+        console.log(chalk.blue('Theme:'), result.data.theme);
+        console.log(chalk.blue('Total Videos:'), result.data.videos.length);
+
+        console.log(chalk.yellow('\n--- VIDEOS ---'));
+        result.data.videos.forEach((video, i) => {
+          console.log(chalk.cyan(`\n${i + 1}. ${video.title}`));
+          console.log(chalk.white('Platform:'), video.platform);
+          console.log(chalk.white('Duration:'), video.duration);
+          console.log(chalk.white('Hook:'), video.hook);
+          console.log(chalk.gray('Narrative:'), video.narrative);
+          console.log(chalk.magenta('Veo 3 Prompt:'), video.veoPrompt);
+        });
+
+        console.log(chalk.yellow('\n--- RELEASE SCHEDULE ---'));
+        result.data.releaseSchedule.forEach((entry) => {
+          console.log(`Week ${entry.week}: ${entry.video} (${entry.platform})`);
+        });
+      } else {
+        console.log(chalk.red('Failed to generate video campaign:'), result.error);
       }
     } catch (error) {
       spinner.stop();

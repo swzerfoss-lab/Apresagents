@@ -234,7 +234,7 @@ Always aim to deliver complete, ready-to-post content that captures the spirit o
     theme: string,
     platforms: SocialPlatform[],
     count: number = 10
-  ): Promise<AgentResponse<string[]>> {
+  ): Promise<AgentResponse<string>> {
     return this.strategyAgent.getContentIdeas(theme, platforms, count);
   }
 
