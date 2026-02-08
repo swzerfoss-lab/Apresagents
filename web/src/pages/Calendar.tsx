@@ -3,7 +3,6 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Plus,
   Sparkles,
   RefreshCw,
 } from 'lucide-react';

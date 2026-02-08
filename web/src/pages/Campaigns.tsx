@@ -8,7 +8,6 @@ import {
   RefreshCw,
   TrendingUp,
   ArrowRight,
-  Plus,
 } from 'lucide-react';
 
 const objectives = [

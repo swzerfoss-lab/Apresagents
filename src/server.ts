@@ -1,5 +1,8 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import os from 'os';
+import { fileURLToPath } from 'url';
 import { config } from 'dotenv';
 import {
   SocialMediaManagerAgent,
@@ -9,6 +12,10 @@ import {
 } from './agents/index.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
 import type { SocialPlatform, CampaignObjective } from './types/index.js';
+
+// Get directory name for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
 config();
@@ -29,11 +36,16 @@ const brandVoiceAgent = new BrandVoiceAgent(brandConfig);
 
 // Create Express app
 const app = express();
-const PORT = process.env.API_PORT || 3001;
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static frontend files
+const webDistPath = path.join(__dirname, '..', 'web', 'dist');
+app.use(express.static(webDistPath));
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -355,26 +367,29 @@ app.post('/api/brand/check', async (req, res) => {
   }
 });
 
+// Serve React app for all non-API routes (must be after API routes)
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(webDistPath, 'index.html'));
+});
+
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
+  const networkInterfaces = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((iface): iface is os.NetworkInterfaceInfo =>
+      iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+    .map((iface) => iface.address);
+
   console.log(`
   ╔══════════════════════════════════════════════════════════╗
   ║                                                          ║
-  ║   🏔️  Apres Feels Content Portal API                     ║
+  ║   🏔️  Apres Feels Content Portal                         ║
   ║                                                          ║
-  ║   Server running at http://localhost:${PORT}              ║
+  ║   Portal ready at:                                       ║
+  ║   - Local:   http://localhost:${PORT}                     ║
+  ║   - Network: http://${networkInterfaces[0] || 'localhost'}:${PORT}                  ║
   ║                                                          ║
-  ║   Endpoints:                                             ║
-  ║   - GET  /api/health          Health check               ║
-  ║   - GET  /api/brand           Brand info                 ║
-  ║   - GET  /api/products        Product list               ║
-  ║   - POST /api/content/generate   Generate content        ║
-  ║   - POST /api/video/generate     Video concept           ║
-  ║   - POST /api/video/campaign     Video campaign          ║
-  ║   - POST /api/campaign/create    Ad campaign             ║
-  ║   - POST /api/calendar/generate  Content calendar        ║
-  ║   - POST /api/brand/guidelines   Brand guidelines        ║
-  ║   - POST /api/brand/check        Brand voice check       ║
+  ║   Open the URL above in your browser!                    ║
   ║                                                          ║
   ╚══════════════════════════════════════════════════════════╝
   `);
