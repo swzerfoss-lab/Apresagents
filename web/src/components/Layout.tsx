@@ -9,10 +9,12 @@ import {
   History,
   Mountain,
   Sparkles,
+  Workflow,
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Weekly Workflow', href: '/workflow', icon: Workflow },
   { name: 'Content Generator', href: '/content', icon: PenTool },
   { name: 'Video Studio', href: '/video', icon: Video },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },

@@ -7,12 +7,14 @@ import Campaigns from './pages/Campaigns';
 import Calendar from './pages/Calendar';
 import BrandVoice from './pages/BrandVoice';
 import History from './pages/History';
+import Workflow from './pages/Workflow';
 
 function App() {
   return (
     <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="workflow" element={<Workflow />} />
         <Route path="content" element={<ContentGenerator />} />
         <Route path="video" element={<VideoStudio />} />
         <Route path="campaigns" element={<Campaigns />} />

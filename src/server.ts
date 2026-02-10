@@ -9,7 +9,10 @@ import {
   VideoContentAgent,
   ContentStrategyAgent,
   BrandVoiceAgent,
+  WeeklyWorkflowOrchestrator,
 } from './agents/index.js';
+import { WorkflowScheduler } from './services/WorkflowScheduler.js';
+import { ContentStorage } from './storage/ContentStorage.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
 import type { SocialPlatform, CampaignObjective } from './types/index.js';
 
@@ -34,9 +37,20 @@ const videoAgent = new VideoContentAgent(brandConfig);
 const strategyAgent = new ContentStrategyAgent(brandConfig);
 const brandVoiceAgent = new BrandVoiceAgent(brandConfig);
 
+// Initialize workflow system
+const workflowOrchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+const workflowScheduler = new WorkflowScheduler(brandConfig, {
+  enabled: true,
+  dayOfWeek: 0, // Sunday
+  hour: 20, // 8pm
+  minute: 0,
+  timezone: 'America/New_York',
+});
+const contentStorage = new ContentStorage();
+
 // Create Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
 
 // Middleware
@@ -49,6 +63,7 @@ app.use(express.static(webDistPath));
 
 // Health check
 app.get('/api/health', (_req, res) => {
+  const schedulerStatus = workflowScheduler.getStatus();
   res.json({
     status: 'ok',
     agents: {
@@ -56,6 +71,11 @@ app.get('/api/health', (_req, res) => {
       video: videoAgent.isVideoGenerationAvailable() ? 'ready' : 'no-api-key',
       strategy: 'ready',
       brandVoice: 'ready',
+      workflowOrchestrator: 'ready',
+    },
+    scheduler: {
+      isRunning: schedulerStatus.isRunning,
+      nextScheduledRun: schedulerStatus.nextScheduledRun,
     },
   });
 });
@@ -364,6 +384,232 @@ app.post('/api/brand/check', async (req, res) => {
   } catch (error) {
     console.error('Error checking content:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// =============================================================================
+// WEEKLY WORKFLOW ENDPOINTS
+// =============================================================================
+
+/**
+ * Get scheduler status
+ */
+app.get('/api/workflow/scheduler/status', (_req, res) => {
+  const status = workflowScheduler.getStatus();
+  res.json({
+    success: true,
+    scheduler: status,
+  });
+});
+
+/**
+ * Start scheduler
+ */
+app.post('/api/workflow/scheduler/start', (_req, res) => {
+  workflowScheduler.start();
+  res.json({
+    success: true,
+    message: 'Scheduler started',
+    scheduler: workflowScheduler.getStatus(),
+  });
+});
+
+/**
+ * Stop scheduler
+ */
+app.post('/api/workflow/scheduler/stop', (_req, res) => {
+  workflowScheduler.stop();
+  res.json({
+    success: true,
+    message: 'Scheduler stopped',
+  });
+});
+
+/**
+ * Update scheduler configuration
+ */
+app.post('/api/workflow/scheduler/config', (req, res) => {
+  const { dayOfWeek, hour, minute, enabled } = req.body;
+  workflowScheduler.updateConfig({
+    dayOfWeek,
+    hour,
+    minute,
+    enabled,
+  });
+  res.json({
+    success: true,
+    scheduler: workflowScheduler.getStatus(),
+  });
+});
+
+/**
+ * Trigger workflow manually
+ */
+app.post('/api/workflow/trigger', async (req, res) => {
+  try {
+    const { platforms, postsPerPlatform, skipVideoGeneration, skipImageGeneration } = req.body;
+
+    // Run workflow in background
+    workflowScheduler.triggerWorkflow('manual', {
+      platforms: platforms as SocialPlatform[],
+      postsPerPlatform,
+      skipVideoGeneration,
+      skipImageGeneration,
+    });
+
+    res.json({
+      success: true,
+      message: 'Workflow triggered - running in background',
+    });
+  } catch (error) {
+    console.error('Error triggering workflow:', error);
+    res.status(500).json({ error: 'Failed to trigger workflow' });
+  }
+});
+
+/**
+ * Get all workflows
+ */
+app.get('/api/workflow/list', async (_req, res) => {
+  try {
+    const workflows = await contentStorage.getAllWorkflows();
+    res.json({
+      success: true,
+      workflows: workflows.map((w) => ({
+        id: w.id,
+        weekStartDate: w.weekStartDate,
+        weekEndDate: w.weekEndDate,
+        status: w.status,
+        currentStage: w.currentStage,
+        createdAt: w.createdAt,
+        completedAt: w.completedAt,
+        totalPosts: w.posts.length,
+        metrics: w.metrics,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching workflows:', error);
+    res.status(500).json({ error: 'Failed to fetch workflows' });
+  }
+});
+
+/**
+ * Get specific workflow
+ */
+app.get('/api/workflow/:id', async (req, res) => {
+  try {
+    const workflow = await contentStorage.getWorkflow(req.params.id);
+    if (!workflow) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+    res.json({
+      success: true,
+      workflow,
+    });
+  } catch (error) {
+    console.error('Error fetching workflow:', error);
+    res.status(500).json({ error: 'Failed to fetch workflow' });
+  }
+});
+
+/**
+ * Get current workflow status
+ */
+app.get('/api/workflow/current/status', (_req, res) => {
+  const currentWorkflow = workflowOrchestrator.getWorkflowStatus();
+  res.json({
+    success: true,
+    workflow: currentWorkflow,
+    hasActiveWorkflow: currentWorkflow !== null,
+  });
+});
+
+/**
+ * Get posts for a specific date
+ */
+app.get('/api/workflow/posts/date/:date', async (req, res) => {
+  try {
+    const date = new Date(req.params.date);
+    const posts = await contentStorage.getPostsForDate(date);
+    res.json({
+      success: true,
+      posts,
+    });
+  } catch (error) {
+    console.error('Error fetching posts:', error);
+    res.status(500).json({ error: 'Failed to fetch posts' });
+  }
+});
+
+/**
+ * Get posts by status
+ */
+app.get('/api/workflow/posts/status/:status', async (req, res) => {
+  try {
+    const status = req.params.status as 'draft' | 'ready' | 'approved' | 'published' | 'failed';
+    const posts = await contentStorage.getPostsByStatus(status);
+    res.json({
+      success: true,
+      posts,
+    });
+  } catch (error) {
+    console.error('Error fetching posts:', error);
+    res.status(500).json({ error: 'Failed to fetch posts' });
+  }
+});
+
+/**
+ * Update post status (approve, etc.)
+ */
+app.post('/api/workflow/posts/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    const success = await contentStorage.updatePostStatus(req.params.id, status);
+    if (success) {
+      res.json({ success: true, message: `Post ${status}` });
+    } else {
+      res.status(404).json({ error: 'Post not found' });
+    }
+  } catch (error) {
+    console.error('Error updating post:', error);
+    res.status(500).json({ error: 'Failed to update post' });
+  }
+});
+
+/**
+ * Get storage statistics
+ */
+app.get('/api/workflow/stats', async (_req, res) => {
+  try {
+    const stats = await contentStorage.getStorageStats();
+    const schedulerStatus = workflowScheduler.getStatus();
+    res.json({
+      success: true,
+      stats,
+      scheduler: schedulerStatus,
+    });
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+/**
+ * Get ready-to-post content for the week
+ */
+app.get('/api/workflow/ready-posts', async (_req, res) => {
+  try {
+    const readyPosts = await contentStorage.getPostsByStatus('ready');
+    const approvedPosts = await contentStorage.getPostsByStatus('approved');
+    res.json({
+      success: true,
+      readyPosts,
+      approvedPosts,
+      totalReady: readyPosts.length + approvedPosts.length,
+    });
+  } catch (error) {
+    console.error('Error fetching ready posts:', error);
+    res.status(500).json({ error: 'Failed to fetch ready posts' });
   }
 });
 

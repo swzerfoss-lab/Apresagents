@@ -292,3 +292,150 @@ export interface VideoCampaign {
   totalDuration: string;
   platforms: SocialPlatform[];
 }
+
+// Weekly Workflow Types
+export type WorkflowStatus =
+  | 'scheduled'
+  | 'running'
+  | 'strategy-complete'
+  | 'copywriting-complete'
+  | 'images-complete'
+  | 'videos-complete'
+  | 'assembly-complete'
+  | 'completed'
+  | 'failed';
+
+export type WorkflowStage =
+  | 'strategy'
+  | 'copywriting'
+  | 'image-generation'
+  | 'video-generation'
+  | 'assembly';
+
+export interface WeeklyWorkflow {
+  id: string;
+  weekStartDate: Date;
+  weekEndDate: Date;
+  status: WorkflowStatus;
+  currentStage: WorkflowStage;
+  createdAt: Date;
+  completedAt?: Date;
+  strategy?: WeeklyContentPlan;
+  posts: ReadyPost[];
+  errors: WorkflowError[];
+  metrics: WorkflowMetrics;
+}
+
+export interface WeeklyContentPlan {
+  weekNumber: number;
+  year: number;
+  theme: string;
+  goals: string[];
+  posts: PlannedPost[];
+  campaigns?: CampaignIdea[];
+}
+
+export interface PlannedPost {
+  id: string;
+  scheduledDate: Date;
+  scheduledTime: string;
+  platform: SocialPlatform;
+  contentType: ContentType;
+  category: ContentCategory;
+  topic: string;
+  briefDescription: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+export interface CopywritingOutput {
+  postId: string;
+  caption: string;
+  hashtags: string[];
+  callToAction: string;
+  imagePrompt: string;
+  videoPrompt?: string;
+  alternativeVersions: string[];
+}
+
+export interface GeneratedAsset {
+  id: string;
+  postId: string;
+  type: 'image' | 'video';
+  prompt: string;
+  url?: string;
+  filePath?: string;
+  status: 'pending' | 'generating' | 'completed' | 'failed';
+  generatedAt?: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ReadyPost {
+  id: string;
+  workflowId: string;
+  platform: SocialPlatform;
+  contentType: ContentType;
+  category: ContentCategory;
+  scheduledDate: Date;
+  scheduledTime: string;
+  status: 'draft' | 'ready' | 'approved' | 'published' | 'failed';
+
+  // Content
+  caption: string;
+  hashtags: string[];
+  callToAction: string;
+
+  // Assets
+  images: GeneratedAsset[];
+  videos: GeneratedAsset[];
+
+  // Formatting per platform
+  platformFormatting: PlatformFormatting;
+
+  // Metadata
+  createdAt: Date;
+  approvedAt?: Date;
+  publishedAt?: Date;
+}
+
+export interface PlatformFormatting {
+  platform: SocialPlatform;
+  formattedCaption: string;
+  formattedHashtags: string;
+  characterCount: number;
+  hashtagCount: number;
+  aspectRatio: string;
+  additionalNotes: string[];
+  isWithinLimits: boolean;
+}
+
+export interface WorkflowError {
+  stage: WorkflowStage;
+  postId?: string;
+  message: string;
+  timestamp: Date;
+  recoverable: boolean;
+}
+
+export interface WorkflowMetrics {
+  totalPosts: number;
+  postsCompleted: number;
+  imagesGenerated: number;
+  videosGenerated: number;
+  startTime?: Date;
+  endTime?: Date;
+  totalDurationMs?: number;
+}
+
+export interface SchedulerConfig {
+  enabled: boolean;
+  dayOfWeek: number; // 0 = Sunday
+  hour: number; // 24-hour format
+  minute: number;
+  timezone: string;
+}
+
+export interface WorkflowTrigger {
+  type: 'scheduled' | 'manual';
+  triggeredAt: Date;
+  triggeredBy?: string;
+}

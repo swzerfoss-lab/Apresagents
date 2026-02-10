@@ -21,3 +21,6 @@ export type { PlatformSpecs } from './platforms/index.js';
 
 // Main orchestrator
 export { SocialMediaManagerAgent } from './SocialMediaManagerAgent.js';
+
+// Weekly workflow orchestrator
+export { WeeklyWorkflowOrchestrator } from './WeeklyWorkflowOrchestrator.js';
