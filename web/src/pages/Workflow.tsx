@@ -79,7 +79,7 @@ export default function Workflow() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
+    const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds for real-time updates
     return () => clearInterval(interval);
   }, []);
 
