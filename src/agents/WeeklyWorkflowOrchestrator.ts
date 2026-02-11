@@ -105,17 +105,22 @@ export class WeeklyWorkflowOrchestrator {
     console.log(`\n🚀 Starting Weekly Workflow for week of ${startDate.toDateString()}`);
     console.log(`Workflow ID: ${this.currentWorkflow.id}\n`);
 
+    // Save immediately so workflow appears in UI
+    await this.storage.saveWorkflow(this.currentWorkflow);
+
     try {
       // Stage 1: Generate Content Strategy
       console.log('📋 Stage 1: Generating Content Strategy...');
       await this.executeStrategyStage(startDate, endDate, options);
       this.currentWorkflow.status = 'strategy-complete';
+      await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
       console.log('✅ Strategy complete\n');
 
       // Stage 2: Generate Copywriting
       console.log('✍️ Stage 2: Generating Copy and Prompts...');
       await this.executeCopywritingStage();
       this.currentWorkflow.status = 'copywriting-complete';
+      await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
       console.log('✅ Copywriting complete\n');
 
       // Stage 3: Generate Images
@@ -123,6 +128,7 @@ export class WeeklyWorkflowOrchestrator {
         console.log('🎨 Stage 3: Generating Images...');
         await this.executeImageGenerationStage();
         this.currentWorkflow.status = 'images-complete';
+        await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
         console.log('✅ Images complete\n');
       }
 
@@ -131,6 +137,7 @@ export class WeeklyWorkflowOrchestrator {
         console.log('🎬 Stage 4: Generating Videos...');
         await this.executeVideoGenerationStage();
         this.currentWorkflow.status = 'videos-complete';
+        await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
         console.log('✅ Videos complete\n');
       }
 
@@ -138,6 +145,7 @@ export class WeeklyWorkflowOrchestrator {
       console.log('📦 Stage 5: Assembling Ready Posts...');
       await this.executeAssemblyStage();
       this.currentWorkflow.status = 'completed';
+      await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
       console.log('✅ Assembly complete\n');
 
       // Finalize
@@ -330,6 +338,9 @@ export class WeeklyWorkflowOrchestrator {
         this.currentWorkflow!.posts.push(readyPost);
         this.currentWorkflow!.metrics.postsCompleted++;
 
+        // Save progress after each post
+        await this.storage.saveWorkflow(this.currentWorkflow!);
+
         console.log(`  ✓ Generated copy for: ${plannedPost.topic} (${plannedPost.platform})`);
       } catch (error) {
         this.addError(
@@ -368,6 +379,10 @@ export class WeeklyWorkflowOrchestrator {
             image.status = 'completed';
             image.generatedAt = new Date();
             this.currentWorkflow!.metrics.imagesGenerated++;
+
+            // Save progress after each image
+            await this.storage.saveWorkflow(this.currentWorkflow!);
+
             console.log(`  ✓ Generated image for: ${post.id}`);
           } else {
             image.status = 'failed';
@@ -413,6 +428,10 @@ export class WeeklyWorkflowOrchestrator {
             video.generatedAt = new Date();
             video.metadata = { prompt: result.data.prompt };
             this.currentWorkflow!.metrics.videosGenerated++;
+
+            // Save progress after each video
+            await this.storage.saveWorkflow(this.currentWorkflow!);
+
             console.log(`  ✓ Generated video for: ${post.id}`);
           } else {
             video.status = 'failed';
@@ -488,6 +507,9 @@ export class WeeklyWorkflowOrchestrator {
         } else {
           post.status = 'ready';
         }
+
+        // Save progress after each assembled post
+        await this.storage.saveWorkflow(this.currentWorkflow!);
 
         console.log(`  ✓ Assembled: ${post.platform} post for ${post.scheduledDate.toDateString()}`);
       } catch (error) {
