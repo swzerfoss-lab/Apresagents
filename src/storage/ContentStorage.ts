@@ -338,18 +338,18 @@ export class ContentStorage {
     }
   }
 
-  private deserializeWorkflow(workflow: WeeklyWorkflow): WeeklyWorkflow {
+  private deserializeWorkflow = (workflow: WeeklyWorkflow): WeeklyWorkflow => {
     return {
       ...workflow,
       weekStartDate: new Date(workflow.weekStartDate),
       weekEndDate: new Date(workflow.weekEndDate),
       createdAt: new Date(workflow.createdAt),
       completedAt: workflow.completedAt ? new Date(workflow.completedAt) : undefined,
-      posts: workflow.posts.map(this.deserializePost),
+      posts: workflow.posts.map((post) => this.deserializePost(post)),
     };
-  }
+  };
 
-  private deserializePost(post: ReadyPost): ReadyPost {
+  private deserializePost = (post: ReadyPost): ReadyPost => {
     return {
       ...post,
       scheduledDate: new Date(post.scheduledDate),
@@ -357,7 +357,7 @@ export class ContentStorage {
       approvedAt: post.approvedAt ? new Date(post.approvedAt) : undefined,
       publishedAt: post.publishedAt ? new Date(post.publishedAt) : undefined,
     };
-  }
+  };
 }
 
 export default ContentStorage;
