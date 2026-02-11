@@ -6,6 +6,7 @@
  */
 
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { WeeklyWorkflow, ReadyPost, GeneratedAsset } from '../types/index.js';
 
@@ -14,19 +15,45 @@ export class ContentStorage {
   private workflowsFile: string;
   private postsDir: string;
   private assetsDir: string;
+  private initialized: boolean = false;
 
   constructor(baseDir?: string) {
     this.storageDir = baseDir || path.join(process.cwd(), 'data', 'content');
     this.workflowsFile = path.join(this.storageDir, 'workflows.json');
     this.postsDir = path.join(this.storageDir, 'posts');
     this.assetsDir = path.join(this.storageDir, 'assets');
-    this.initializeStorage();
+    // Use synchronous initialization to ensure directories exist immediately
+    this.initializeStorageSync();
   }
 
   /**
-   * Initialize storage directories
+   * Initialize storage directories synchronously
+   */
+  private initializeStorageSync(): void {
+    try {
+      fsSync.mkdirSync(this.storageDir, { recursive: true });
+      fsSync.mkdirSync(this.postsDir, { recursive: true });
+      fsSync.mkdirSync(this.assetsDir, { recursive: true });
+      fsSync.mkdirSync(path.join(this.assetsDir, 'images'), { recursive: true });
+      fsSync.mkdirSync(path.join(this.assetsDir, 'videos'), { recursive: true });
+
+      // Initialize workflows file if it doesn't exist
+      if (!fsSync.existsSync(this.workflowsFile)) {
+        fsSync.writeFileSync(this.workflowsFile, JSON.stringify({ workflows: [] }, null, 2));
+      }
+      this.initialized = true;
+      console.log('📁 Content storage initialized at:', this.storageDir);
+    } catch (error) {
+      console.error('Error initializing storage:', error);
+    }
+  }
+
+  /**
+   * Initialize storage directories (async version for compatibility)
    */
   private async initializeStorage(): Promise<void> {
+    if (this.initialized) return;
+
     try {
       await fs.mkdir(this.storageDir, { recursive: true });
       await fs.mkdir(this.postsDir, { recursive: true });
@@ -40,6 +67,7 @@ export class ContentStorage {
       } catch {
         await fs.writeFile(this.workflowsFile, JSON.stringify({ workflows: [] }, null, 2));
       }
+      this.initialized = true;
     } catch (error) {
       console.error('Error initializing storage:', error);
     }
