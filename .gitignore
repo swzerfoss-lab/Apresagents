@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+
+# Runtime data storage
+data/
