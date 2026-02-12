@@ -249,9 +249,13 @@ export default function Workflow() {
       if (data.success) {
         fetchWorkflowDetail(workflowDetail.id);
         fetchData();
+      } else {
+        console.error('API error:', data.error);
+        alert(`Error: ${data.error || 'Failed to approve stage'}`);
       }
     } catch (error) {
       console.error('Error approving stage:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to approve stage'}`);
     } finally {
       setApproving(false);
     }

@@ -346,6 +346,12 @@ export class ContentStorage {
       createdAt: new Date(workflow.createdAt),
       completedAt: workflow.completedAt ? new Date(workflow.completedAt) : undefined,
       posts: workflow.posts.map((post) => this.deserializePost(post)),
+      // Ensure new fields have defaults
+      stageApprovals: (workflow.stageApprovals || []).map(approval => ({
+        ...approval,
+        approvedAt: approval.approvedAt ? new Date(approval.approvedAt) : undefined,
+      })),
+      awaitingApproval: workflow.awaitingApproval ?? false,
     };
   };
 
