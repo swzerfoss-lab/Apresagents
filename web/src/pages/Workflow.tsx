@@ -227,10 +227,22 @@ export default function Workflow() {
       });
       const data = await res.json();
       if (data.success) {
-        fetchData();
+        // Wait a moment for the workflow to be created, then fetch and auto-select
+        setTimeout(async () => {
+          const workflowsRes = await fetch('/api/workflow/list');
+          const workflowsData = await workflowsRes.json();
+          if (workflowsData.success && workflowsData.workflows.length > 0) {
+            setWorkflows(workflowsData.workflows);
+            // Auto-select the newest workflow
+            setSelectedWorkflowId(workflowsData.workflows[0].id);
+            // Expand the strategy stage
+            setExpandedStages(new Set(['strategy']));
+          }
+        }, 1000);
       }
     } catch (error) {
       console.error('Error triggering workflow:', error);
+      alert('Failed to trigger workflow');
     } finally {
       setTriggering(false);
     }
@@ -580,18 +592,27 @@ export default function Workflow() {
                       {isExpanded && hasContent && (
                         <div className="border-t border-gray-200 p-4">
                           {/* Strategy Stage - Calendar */}
-                          {stage.id === 'strategy' && workflowDetail.strategy && (
+                          {stage.id === 'strategy' && (
                             <div>
-                              <div className="mb-4">
-                                <p className="text-sm text-gray-600">
-                                  <strong>Theme:</strong> {workflowDetail.strategy.theme}
-                                </p>
-                                <p className="text-sm text-gray-600">
-                                  <strong>Goals:</strong> {workflowDetail.strategy.goals.join(', ')}
-                                </p>
-                              </div>
-                              <div className="space-y-3">
-                                {workflowDetail.strategy.posts.map(post => (
+                              {status === 'current' && !workflowDetail.strategy && (
+                                <div className="flex flex-col items-center justify-center py-12">
+                                  <Loader className="w-12 h-12 animate-spin text-alpine-600 mb-4" />
+                                  <p className="text-gray-600 font-medium">Generating Content Calendar...</p>
+                                  <p className="text-sm text-gray-400 mt-1">This may take a minute</p>
+                                </div>
+                              )}
+                              {workflowDetail.strategy && (
+                                <>
+                                  <div className="mb-4">
+                                    <p className="text-sm text-gray-600">
+                                      <strong>Theme:</strong> {workflowDetail.strategy.theme}
+                                    </p>
+                                    <p className="text-sm text-gray-600">
+                                      <strong>Goals:</strong> {workflowDetail.strategy.goals.join(', ')}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-3">
+                                    {workflowDetail.strategy.posts.map(post => (
                                   <div key={post.id} className="border border-gray-200 rounded-lg p-3">
                                     {editingItem?.type === 'calendar' && editingItem?.id === post.id ? (
                                       <div className="space-y-3">
@@ -651,13 +672,24 @@ export default function Workflow() {
                                       </div>
                                     )}
                                   </div>
-                                ))}
-                              </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
 
                           {/* Copywriting Stage */}
-                          {stage.id === 'copywriting' && workflowDetail.posts.length > 0 && (
+                          {stage.id === 'copywriting' && (
+                            <>
+                              {status === 'current' && workflowDetail.posts.length === 0 && (
+                                <div className="flex flex-col items-center justify-center py-12">
+                                  <Loader className="w-12 h-12 animate-spin text-alpine-600 mb-4" />
+                                  <p className="text-gray-600 font-medium">Writing Copy & Prompts...</p>
+                                  <p className="text-sm text-gray-400 mt-1">Creating captions for each post</p>
+                                </div>
+                              )}
+                              {workflowDetail.posts.length > 0 && (
                             <div className="space-y-4">
                               {workflowDetail.posts.map(post => (
                                 <div key={post.id} className="border border-gray-200 rounded-lg p-4">
@@ -746,11 +778,22 @@ export default function Workflow() {
                                   )}
                                 </div>
                               ))}
-                            </div>
+                              </div>
+                              )}
+                            </>
                           )}
 
                           {/* Image Generation Stage */}
-                          {stage.id === 'image-generation' && workflowDetail.posts.length > 0 && (
+                          {stage.id === 'image-generation' && (
+                            <>
+                              {status === 'current' && workflowDetail.posts.every(p => p.images.every(i => i.status === 'pending')) && (
+                                <div className="flex flex-col items-center justify-center py-12">
+                                  <Loader className="w-12 h-12 animate-spin text-purple-600 mb-4" />
+                                  <p className="text-gray-600 font-medium">Generating Images...</p>
+                                  <p className="text-sm text-gray-400 mt-1">Creating visuals from prompts</p>
+                                </div>
+                              )}
+                              {workflowDetail.posts.length > 0 && (
                             <div className="grid grid-cols-2 gap-4">
                               {workflowDetail.posts.flatMap(post =>
                                 post.images.map(image => (
@@ -806,11 +849,22 @@ export default function Workflow() {
                                   </div>
                                 ))
                               )}
-                            </div>
+                              </div>
+                              )}
+                            </>
                           )}
 
                           {/* Video Generation Stage */}
-                          {stage.id === 'video-generation' && workflowDetail.posts.length > 0 && (
+                          {stage.id === 'video-generation' && (
+                            <>
+                              {status === 'current' && workflowDetail.posts.every(p => p.videos.every(v => v.status === 'pending')) && (
+                                <div className="flex flex-col items-center justify-center py-12">
+                                  <Loader className="w-12 h-12 animate-spin text-pink-600 mb-4" />
+                                  <p className="text-gray-600 font-medium">Generating Videos...</p>
+                                  <p className="text-sm text-gray-400 mt-1">Creating videos with Veo 3</p>
+                                </div>
+                              )}
+                              {workflowDetail.posts.length > 0 && (
                             <div className="grid grid-cols-2 gap-4">
                               {workflowDetail.posts.flatMap(post =>
                                 post.videos.map(video => (
@@ -868,7 +922,9 @@ export default function Workflow() {
                               {workflowDetail.posts.every(p => p.videos.length === 0) && (
                                 <p className="col-span-2 text-center text-gray-500 py-8">No videos generated for this workflow</p>
                               )}
-                            </div>
+                              </div>
+                              )}
+                            </>
                           )}
 
                           {/* Assembly Stage */}
