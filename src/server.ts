@@ -613,6 +613,196 @@ app.get('/api/workflow/ready-posts', async (_req, res) => {
   }
 });
 
+// =============================================================================
+// STAGE-BY-STAGE WORKFLOW ENDPOINTS
+// =============================================================================
+
+/**
+ * Approve current stage and continue to next stage
+ */
+app.post('/api/workflow/:id/approve-stage', async (req, res) => {
+  try {
+    const { skipVideoGeneration, skipImageGeneration } = req.body;
+    const workflow = await workflowOrchestrator.approveStageAndContinue(
+      req.params.id,
+      { skipVideoGeneration, skipImageGeneration }
+    );
+    res.json({
+      success: true,
+      workflow,
+      message: `Stage approved - ${workflow.awaitingApproval ? 'awaiting next approval' : 'workflow complete'}`,
+    });
+  } catch (error) {
+    console.error('Error approving stage:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to approve stage' });
+  }
+});
+
+/**
+ * Edit post content (caption, hashtags, CTA)
+ */
+app.put('/api/workflow/:workflowId/post/:postId', async (req, res) => {
+  try {
+    const { caption, hashtags, callToAction } = req.body;
+    const post = await workflowOrchestrator.editPostContent(req.params.workflowId, {
+      postId: req.params.postId,
+      caption,
+      hashtags,
+      callToAction,
+    });
+    if (post) {
+      res.json({ success: true, post });
+    } else {
+      res.status(404).json({ error: 'Post not found' });
+    }
+  } catch (error) {
+    console.error('Error editing post:', error);
+    res.status(500).json({ error: 'Failed to edit post' });
+  }
+});
+
+/**
+ * Edit calendar entry (planned post)
+ */
+app.put('/api/workflow/:workflowId/calendar/:postId', async (req, res) => {
+  try {
+    const { scheduledDate, scheduledTime, topic, briefDescription, platform, contentType, category } = req.body;
+    const plannedPost = await workflowOrchestrator.editCalendarEntry(req.params.workflowId, {
+      postId: req.params.postId,
+      scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
+      scheduledTime,
+      topic,
+      briefDescription,
+      platform,
+      contentType,
+      category,
+    });
+    if (plannedPost) {
+      res.json({ success: true, plannedPost });
+    } else {
+      res.status(404).json({ error: 'Calendar entry not found' });
+    }
+  } catch (error) {
+    console.error('Error editing calendar entry:', error);
+    res.status(500).json({ error: 'Failed to edit calendar entry' });
+  }
+});
+
+/**
+ * Regenerate an asset with a new prompt
+ */
+app.post('/api/workflow/:workflowId/asset/:assetId/regenerate', async (req, res) => {
+  try {
+    const { postId, newPrompt, type } = req.body;
+    if (!postId || !newPrompt || !type) {
+      return res.status(400).json({ error: 'postId, newPrompt, and type are required' });
+    }
+    const asset = await workflowOrchestrator.regenerateAsset(req.params.workflowId, {
+      assetId: req.params.assetId,
+      postId,
+      newPrompt,
+      type,
+    });
+    if (asset) {
+      res.json({ success: true, asset });
+    } else {
+      res.status(404).json({ error: 'Asset not found' });
+    }
+  } catch (error) {
+    console.error('Error regenerating asset:', error);
+    res.status(500).json({ error: 'Failed to regenerate asset' });
+  }
+});
+
+/**
+ * Get detailed stage output for a workflow
+ */
+app.get('/api/workflow/:id/stage/:stage', async (req, res) => {
+  try {
+    const workflow = await contentStorage.getWorkflow(req.params.id);
+    if (!workflow) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    const stage = req.params.stage as string;
+    let output: unknown = null;
+
+    switch (stage) {
+      case 'strategy':
+        output = {
+          strategy: workflow.strategy,
+          plannedPosts: workflow.strategy?.posts || [],
+        };
+        break;
+      case 'copywriting':
+        output = {
+          posts: workflow.posts.map(p => ({
+            id: p.id,
+            platform: p.platform,
+            contentType: p.contentType,
+            category: p.category,
+            scheduledDate: p.scheduledDate,
+            caption: p.caption,
+            hashtags: p.hashtags,
+            callToAction: p.callToAction,
+            imagePrompts: p.images.map(i => ({ id: i.id, prompt: i.prompt })),
+            videoPrompts: p.videos.map(v => ({ id: v.id, prompt: v.prompt })),
+          })),
+        };
+        break;
+      case 'image-generation':
+        output = {
+          posts: workflow.posts.map(p => ({
+            id: p.id,
+            platform: p.platform,
+            images: p.images,
+          })),
+          totalImages: workflow.metrics.imagesGenerated,
+        };
+        break;
+      case 'video-generation':
+        output = {
+          posts: workflow.posts.map(p => ({
+            id: p.id,
+            platform: p.platform,
+            videos: p.videos,
+          })),
+          totalVideos: workflow.metrics.videosGenerated,
+        };
+        break;
+      case 'assembly':
+        output = {
+          posts: workflow.posts.map(p => ({
+            id: p.id,
+            platform: p.platform,
+            status: p.status,
+            scheduledDate: p.scheduledDate,
+            scheduledTime: p.scheduledTime,
+            caption: p.caption,
+            hashtags: p.hashtags,
+            platformFormatting: p.platformFormatting,
+            images: p.images,
+            videos: p.videos,
+          })),
+        };
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid stage' });
+    }
+
+    res.json({
+      success: true,
+      stage,
+      output,
+      isCurrentStage: workflow.currentStage === stage,
+      awaitingApproval: workflow.awaitingApproval && workflow.currentStage === stage,
+    });
+  } catch (error) {
+    console.error('Error fetching stage output:', error);
+    res.status(500).json({ error: 'Failed to fetch stage output' });
+  }
+});
+
 // Serve React app for all non-API routes (must be after API routes)
 app.get('*', (_req, res) => {
   res.sendFile(path.join(webDistPath, 'index.html'));

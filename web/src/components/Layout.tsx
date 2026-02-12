@@ -1,8 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
-  PenTool,
-  Video,
   Megaphone,
   CalendarDays,
   Palette,
@@ -14,9 +12,7 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Weekly Workflow', href: '/workflow', icon: Workflow },
-  { name: 'Content Generator', href: '/content', icon: PenTool },
-  { name: 'Video Studio', href: '/video', icon: Video },
+  { name: 'Content Workflow', href: '/workflow', icon: Workflow },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
   { name: 'Calendar', href: '/calendar', icon: CalendarDays },
   { name: 'Brand Voice', href: '/brand', icon: Palette },

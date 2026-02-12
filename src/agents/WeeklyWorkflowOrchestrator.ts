@@ -32,6 +32,10 @@ import {
   ContentType,
   ContentCategory,
   CalendarEntry,
+  StageApproval,
+  ContentEditRequest,
+  CalendarEditRequest,
+  AssetRegenerateRequest,
 } from '../types/index.js';
 import { ContentStorage } from '../storage/ContentStorage.js';
 
@@ -100,6 +104,8 @@ export class WeeklyWorkflowOrchestrator {
         videosGenerated: 0,
         startTime: new Date(),
       },
+      stageApprovals: [],
+      awaitingApproval: false,
     };
 
     console.log(`\n🚀 Starting Weekly Workflow for week of ${startDate.toDateString()}`);
@@ -112,56 +118,149 @@ export class WeeklyWorkflowOrchestrator {
       // Stage 1: Generate Content Strategy
       console.log('📋 Stage 1: Generating Content Strategy...');
       await this.executeStrategyStage(startDate, endDate, options);
-      this.currentWorkflow.status = 'strategy-complete';
-      await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
-      console.log('✅ Strategy complete\n');
-
-      // Stage 2: Generate Copywriting
-      console.log('✍️ Stage 2: Generating Copy and Prompts...');
-      await this.executeCopywritingStage();
-      this.currentWorkflow.status = 'copywriting-complete';
-      await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
-      console.log('✅ Copywriting complete\n');
-
-      // Stage 3: Generate Images
-      if (!options?.skipImageGeneration) {
-        console.log('🎨 Stage 3: Generating Images...');
-        await this.executeImageGenerationStage();
-        this.currentWorkflow.status = 'images-complete';
-        await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
-        console.log('✅ Images complete\n');
-      }
-
-      // Stage 4: Generate Videos
-      if (!options?.skipVideoGeneration) {
-        console.log('🎬 Stage 4: Generating Videos...');
-        await this.executeVideoGenerationStage();
-        this.currentWorkflow.status = 'videos-complete';
-        await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
-        console.log('✅ Videos complete\n');
-      }
-
-      // Stage 5: Assemble Ready Posts
-      console.log('📦 Stage 5: Assembling Ready Posts...');
-      await this.executeAssemblyStage();
-      this.currentWorkflow.status = 'completed';
-      await this.storage.saveWorkflow(this.currentWorkflow); // Save progress
-      console.log('✅ Assembly complete\n');
-
-      // Finalize
-      this.currentWorkflow.completedAt = new Date();
-      this.currentWorkflow.metrics.endTime = new Date();
-      this.currentWorkflow.metrics.totalDurationMs =
-        this.currentWorkflow.metrics.endTime.getTime() -
-        (this.currentWorkflow.metrics.startTime?.getTime() || 0);
-
-      // Save to storage
+      this.currentWorkflow.status = 'awaiting-approval';
+      this.currentWorkflow.awaitingApproval = true;
       await this.storage.saveWorkflow(this.currentWorkflow);
+      console.log('✅ Strategy complete - awaiting approval\n');
 
-      console.log('🎉 Weekly Workflow Complete!');
-      console.log(`Total Posts: ${this.currentWorkflow.metrics.totalPosts}`);
-      console.log(`Images Generated: ${this.currentWorkflow.metrics.imagesGenerated}`);
-      console.log(`Videos Generated: ${this.currentWorkflow.metrics.videosGenerated}`);
+      // Workflow pauses here - user must approve to continue
+      return this.currentWorkflow;
+    } catch (error) {
+      this.currentWorkflow.status = 'failed';
+      this.addError(
+        this.currentWorkflow.currentStage,
+        `Workflow failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        false
+      );
+      await this.storage.saveWorkflow(this.currentWorkflow);
+      throw error;
+    }
+  }
+
+  /**
+   * Approve current stage and continue to next stage
+   */
+  async approveStageAndContinue(
+    workflowId: string,
+    options?: {
+      skipVideoGeneration?: boolean;
+      skipImageGeneration?: boolean;
+    }
+  ): Promise<WeeklyWorkflow> {
+    // Load workflow if not current
+    if (!this.currentWorkflow || this.currentWorkflow.id !== workflowId) {
+      const workflow = await this.storage.getWorkflow(workflowId);
+      if (!workflow) {
+        throw new Error('Workflow not found');
+      }
+      this.currentWorkflow = workflow;
+    }
+
+    if (!this.currentWorkflow.awaitingApproval) {
+      throw new Error('Workflow is not awaiting approval');
+    }
+
+    const currentStage = this.currentWorkflow.currentStage;
+
+    // Record approval
+    this.currentWorkflow.stageApprovals.push({
+      stage: currentStage,
+      approved: true,
+      approvedAt: new Date(),
+    });
+    this.currentWorkflow.awaitingApproval = false;
+
+    try {
+      // Determine next stage and execute
+      if (currentStage === 'strategy') {
+        this.currentWorkflow.status = 'strategy-complete';
+        await this.storage.saveWorkflow(this.currentWorkflow);
+
+        console.log('✍️ Stage 2: Generating Copy and Prompts...');
+        this.currentWorkflow.currentStage = 'copywriting';
+        this.currentWorkflow.status = 'running';
+        await this.storage.saveWorkflow(this.currentWorkflow);
+
+        await this.executeCopywritingStage();
+        this.currentWorkflow.status = 'awaiting-approval';
+        this.currentWorkflow.awaitingApproval = true;
+        await this.storage.saveWorkflow(this.currentWorkflow);
+        console.log('✅ Copywriting complete - awaiting approval\n');
+
+      } else if (currentStage === 'copywriting') {
+        this.currentWorkflow.status = 'copywriting-complete';
+        await this.storage.saveWorkflow(this.currentWorkflow);
+
+        if (!options?.skipImageGeneration) {
+          console.log('🎨 Stage 3: Generating Images...');
+          this.currentWorkflow.currentStage = 'image-generation';
+          this.currentWorkflow.status = 'running';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          await this.executeImageGenerationStage();
+          this.currentWorkflow.status = 'awaiting-approval';
+          this.currentWorkflow.awaitingApproval = true;
+          await this.storage.saveWorkflow(this.currentWorkflow);
+          console.log('✅ Images complete - awaiting approval\n');
+        } else {
+          // Skip to video or assembly
+          this.currentWorkflow.currentStage = options?.skipVideoGeneration ? 'assembly' : 'video-generation';
+          return this.approveStageAndContinue(workflowId, options);
+        }
+
+      } else if (currentStage === 'image-generation') {
+        this.currentWorkflow.status = 'images-complete';
+        await this.storage.saveWorkflow(this.currentWorkflow);
+
+        if (!options?.skipVideoGeneration) {
+          console.log('🎬 Stage 4: Generating Videos...');
+          this.currentWorkflow.currentStage = 'video-generation';
+          this.currentWorkflow.status = 'running';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          await this.executeVideoGenerationStage();
+          this.currentWorkflow.status = 'awaiting-approval';
+          this.currentWorkflow.awaitingApproval = true;
+          await this.storage.saveWorkflow(this.currentWorkflow);
+          console.log('✅ Videos complete - awaiting approval\n');
+        } else {
+          // Skip to assembly
+          this.currentWorkflow.currentStage = 'assembly';
+          return this.approveStageAndContinue(workflowId, options);
+        }
+
+      } else if (currentStage === 'video-generation') {
+        this.currentWorkflow.status = 'videos-complete';
+        await this.storage.saveWorkflow(this.currentWorkflow);
+
+        console.log('📦 Stage 5: Assembling Ready Posts...');
+        this.currentWorkflow.currentStage = 'assembly';
+        this.currentWorkflow.status = 'running';
+        await this.storage.saveWorkflow(this.currentWorkflow);
+
+        await this.executeAssemblyStage();
+        this.currentWorkflow.status = 'awaiting-approval';
+        this.currentWorkflow.awaitingApproval = true;
+        await this.storage.saveWorkflow(this.currentWorkflow);
+        console.log('✅ Assembly complete - awaiting final approval\n');
+
+      } else if (currentStage === 'assembly') {
+        // Final stage - mark workflow as complete
+        this.currentWorkflow.status = 'completed';
+        this.currentWorkflow.awaitingApproval = false;
+        this.currentWorkflow.completedAt = new Date();
+        this.currentWorkflow.metrics.endTime = new Date();
+        this.currentWorkflow.metrics.totalDurationMs =
+          this.currentWorkflow.metrics.endTime.getTime() -
+          (this.currentWorkflow.metrics.startTime?.getTime() || 0);
+
+        await this.storage.saveWorkflow(this.currentWorkflow);
+
+        console.log('🎉 Weekly Workflow Complete!');
+        console.log(`Total Posts: ${this.currentWorkflow.metrics.totalPosts}`);
+        console.log(`Images Generated: ${this.currentWorkflow.metrics.imagesGenerated}`);
+        console.log(`Videos Generated: ${this.currentWorkflow.metrics.videosGenerated}`);
+      }
 
       return this.currentWorkflow;
     } catch (error) {
@@ -174,6 +273,123 @@ export class WeeklyWorkflowOrchestrator {
       await this.storage.saveWorkflow(this.currentWorkflow);
       throw error;
     }
+  }
+
+  /**
+   * Edit post content (caption, hashtags, CTA)
+   */
+  async editPostContent(workflowId: string, edit: ContentEditRequest): Promise<ReadyPost | null> {
+    const workflow = await this.storage.getWorkflow(workflowId);
+    if (!workflow) return null;
+
+    const post = workflow.posts.find(p => p.id === edit.postId);
+    if (!post) return null;
+
+    if (edit.caption !== undefined) post.caption = edit.caption;
+    if (edit.hashtags !== undefined) post.hashtags = edit.hashtags;
+    if (edit.callToAction !== undefined) post.callToAction = edit.callToAction;
+
+    await this.storage.saveWorkflow(workflow);
+
+    // Update current workflow if it's the same
+    if (this.currentWorkflow?.id === workflowId) {
+      this.currentWorkflow = workflow;
+    }
+
+    return post;
+  }
+
+  /**
+   * Edit planned post in calendar (before copywriting)
+   */
+  async editCalendarEntry(workflowId: string, edit: CalendarEditRequest): Promise<PlannedPost | null> {
+    const workflow = await this.storage.getWorkflow(workflowId);
+    if (!workflow || !workflow.strategy) return null;
+
+    const plannedPost = workflow.strategy.posts.find(p => p.id === edit.postId);
+    if (!plannedPost) return null;
+
+    if (edit.scheduledDate !== undefined) plannedPost.scheduledDate = edit.scheduledDate;
+    if (edit.scheduledTime !== undefined) plannedPost.scheduledTime = edit.scheduledTime;
+    if (edit.topic !== undefined) plannedPost.topic = edit.topic;
+    if (edit.briefDescription !== undefined) plannedPost.briefDescription = edit.briefDescription;
+    if (edit.platform !== undefined) plannedPost.platform = edit.platform;
+    if (edit.contentType !== undefined) plannedPost.contentType = edit.contentType;
+    if (edit.category !== undefined) plannedPost.category = edit.category;
+
+    await this.storage.saveWorkflow(workflow);
+
+    if (this.currentWorkflow?.id === workflowId) {
+      this.currentWorkflow = workflow;
+    }
+
+    return plannedPost;
+  }
+
+  /**
+   * Regenerate an asset with a new prompt
+   */
+  async regenerateAsset(workflowId: string, request: AssetRegenerateRequest): Promise<GeneratedAsset | null> {
+    const workflow = await this.storage.getWorkflow(workflowId);
+    if (!workflow) return null;
+
+    const post = workflow.posts.find(p => p.id === request.postId);
+    if (!post) return null;
+
+    const assets = request.type === 'image' ? post.images : post.videos;
+    const asset = assets.find(a => a.id === request.assetId);
+    if (!asset) return null;
+
+    // Update prompt and reset status
+    asset.prompt = request.newPrompt;
+    asset.status = 'pending';
+    asset.url = undefined;
+    asset.filePath = undefined;
+    asset.generatedAt = undefined;
+
+    await this.storage.saveWorkflow(workflow);
+
+    // Now regenerate
+    try {
+      asset.status = 'generating';
+      await this.storage.saveWorkflow(workflow);
+
+      if (request.type === 'image') {
+        const aspectRatio = this.getImageAspectRatio(post.platform, post.contentType);
+        const result = await this.visualAgent.generateImage(request.newPrompt, { aspectRatio });
+
+        if (result.success && result.data) {
+          asset.url = result.data.filePath;
+          asset.filePath = result.data.filePath;
+          asset.status = 'completed';
+          asset.generatedAt = new Date();
+        } else {
+          asset.status = 'failed';
+        }
+      } else {
+        const result = await this.videoAgent.generateVideo(request.newPrompt, { duration: 8 });
+
+        if (result.success && result.data) {
+          asset.url = result.data.videoUrl;
+          asset.filePath = result.data.filePath;
+          asset.status = 'completed';
+          asset.generatedAt = new Date();
+          asset.metadata = { prompt: result.data.prompt };
+        } else {
+          asset.status = 'failed';
+        }
+      }
+    } catch (error) {
+      asset.status = 'failed';
+    }
+
+    await this.storage.saveWorkflow(workflow);
+
+    if (this.currentWorkflow?.id === workflowId) {
+      this.currentWorkflow = workflow;
+    }
+
+    return asset;
   }
 
   /**

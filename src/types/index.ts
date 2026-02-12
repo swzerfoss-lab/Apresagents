@@ -297,6 +297,7 @@ export interface VideoCampaign {
 export type WorkflowStatus =
   | 'scheduled'
   | 'running'
+  | 'awaiting-approval'
   | 'strategy-complete'
   | 'copywriting-complete'
   | 'images-complete'
@@ -312,6 +313,13 @@ export type WorkflowStage =
   | 'video-generation'
   | 'assembly';
 
+export interface StageApproval {
+  stage: WorkflowStage;
+  approved: boolean;
+  approvedAt?: Date;
+  approvedBy?: string;
+}
+
 export interface WeeklyWorkflow {
   id: string;
   weekStartDate: Date;
@@ -324,6 +332,10 @@ export interface WeeklyWorkflow {
   posts: ReadyPost[];
   errors: WorkflowError[];
   metrics: WorkflowMetrics;
+  // Stage approval tracking
+  stageApprovals: StageApproval[];
+  // Flag to indicate workflow is waiting for user approval
+  awaitingApproval: boolean;
 }
 
 export interface WeeklyContentPlan {
@@ -438,4 +450,31 @@ export interface WorkflowTrigger {
   type: 'scheduled' | 'manual';
   triggeredAt: Date;
   triggeredBy?: string;
+}
+
+// Content editing types
+export interface ContentEditRequest {
+  postId: string;
+  caption?: string;
+  hashtags?: string[];
+  callToAction?: string;
+}
+
+export interface CalendarEditRequest {
+  postId: string;
+  scheduledDate?: Date;
+  scheduledTime?: string;
+  topic?: string;
+  briefDescription?: string;
+  platform?: SocialPlatform;
+  contentType?: ContentType;
+  category?: ContentCategory;
+}
+
+// Asset regeneration types
+export interface AssetRegenerateRequest {
+  assetId: string;
+  postId: string;
+  newPrompt: string;
+  type: 'image' | 'video';
 }
