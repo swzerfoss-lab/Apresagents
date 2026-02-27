@@ -11,7 +11,7 @@ import type {
 } from '../types/index.js';
 
 /**
- * Generated image result from Gemini Nano Banana
+ * Generated image result from Gemini 3.1 Flash Image
  */
 export interface GeneratedImage {
   base64Data: string;
@@ -21,7 +21,7 @@ export interface GeneratedImage {
 }
 
 /**
- * Image generation options for Nano Banana
+ * Image generation options for Gemini 3.1 Flash Image
  */
 export interface ImageGenerationOptions {
   aspectRatio?: '1:1' | '9:16' | '16:9' | '3:4' | '4:3';
@@ -32,24 +32,24 @@ export interface ImageGenerationOptions {
 
 /**
  * Visual Content Agent
- * Responsible for generating image prompts, visual concepts, and actual images via Gemini Nano Banana
+ * Responsible for generating image prompts, visual concepts, and actual images via Gemini 3.1 Flash Image
  */
 export class VisualContentAgent extends BaseAgent {
   private genAI: GoogleGenAI | null = null;
-  private imageModelName: string = 'gemini-2.0-flash-exp'; // Nano Banana capable model
+  private imageModelName: string = 'gemini-2.0-flash-exp-image-generation'; // Gemini 3.1 Flash Image model
 
   constructor(brandConfig: BrandConfig) {
     super(
       {
         name: 'Visual Content Agent',
-        description: 'Creates visual concepts, image prompts, and generates images via Gemini Nano Banana',
+        description: 'Creates visual concepts, image prompts, and generates images via Gemini 3.1 Flash Image',
         systemPrompt: `You are an expert visual content strategist and art director for Apres Feels, a premium winter sports recovery and skincare brand.
 
 ## About Apres Feels
 Apres Feels (apresfeels.com) is a premium and luxury skincare, muscle care, muscle recovery, and body recovery company for winter sports enthusiasts - skiers, snowboarders, mountaineers, and the après-ski lifestyle.
 
 ## Your Visual Expertise
-1. Creating detailed prompts for AI image generation optimized for Google Gemini Nano Banana
+1. Creating detailed prompts for AI image generation optimized for Google Gemini 3.1 Flash Image
 2. Developing visual concepts that align with premium mountain lifestyle aesthetics
 3. Understanding platform-specific visual requirements
 4. Crafting mood boards and style guidelines
@@ -71,7 +71,7 @@ Apres Feels (apresfeels.com) is a premium and luxury skincare, muscle care, musc
 - Facebook: 1.91:1 for links, 1:1 for engagement, lifestyle-focused
 - Pinterest: 2:3 vertical, text overlay friendly, aspirational
 
-## Image Prompt Guidelines for Gemini Nano Banana
+## Image Prompt Guidelines for Gemini 3.1 Flash Image
 When creating prompts:
 - Be specific about winter sports context and mountain settings
 - Include lighting details (alpine golden hour, lodge warmth, etc.)
@@ -107,7 +107,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
   }
 
   /**
-   * Generate an image using Gemini Nano Banana
+   * Generate an image using Gemini 3.1 Flash Image
    */
   async generateImage(
     prompt: string,
@@ -124,7 +124,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
       // Enhance prompt with brand context
       const enhancedPrompt = this.enhancePromptForBrand(prompt, options.style);
 
-      // Generate image using Nano Banana
+      // Generate image using Gemini 3.1 Flash Image
       const response = await this.genAI.models.generateContent({
         model: this.imageModelName,
         contents: enhancedPrompt,
@@ -331,7 +331,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
       pinterest: '2:3',
     };
 
-    const promptText = `Create a detailed AI image generation prompt optimized for Google Gemini Nano Banana for: "${concept}"
+    const promptText = `Create a detailed AI image generation prompt optimized for Google Gemini 3.1 Flash Image for: "${concept}"
 
 Platform: ${platform} (preferred aspect ratio: ${aspectRatios[platform]})
 ${product ? `Product to feature: ${product.name} - ${product.description}` : ''}
@@ -345,7 +345,7 @@ Remember this is for Apres Feels - a premium winter sports recovery brand. The i
 Output in JSON format:
 \`\`\`json
 {
-  "prompt": "Detailed prompt for Gemini Nano Banana (be specific about winter sports context, mountain settings, composition, lighting, colors, premium quality). Make it vivid and descriptive.",
+  "prompt": "Detailed prompt for Gemini 3.1 Flash Image (be specific about winter sports context, mountain settings, composition, lighting, colors, premium quality). Make it vivid and descriptive.",
   "negativePrompt": "Elements to avoid in the image",
   "aspectRatio": "${aspectRatios[platform]}",
   "style": "The visual style (e.g., 'alpine editorial photography', 'luxury product shot', 'lifestyle action sports')",
@@ -410,7 +410,7 @@ Output in JSON format:
     "concept": "Brief concept name",
     "description": "Detailed description of the visual concept with winter sports/mountain context",
     "platforms": ["instagram", "tiktok"],
-    "imagePrompt": "Detailed Gemini Nano Banana prompt for this concept - be vivid and specific",
+    "imagePrompt": "Detailed Gemini 3.1 Flash Image prompt for this concept - be vivid and specific",
     "contentTypes": ["post", "reel", "story"]
   }
 ]
@@ -482,7 +482,7 @@ Output in JSON format:
   "lighting": "Detailed lighting setup description (alpine golden hour, lodge warmth, etc.)",
   "background": "Background description with mountain/winter context",
   "composition": "How elements should be arranged",
-  "imagePrompt": "Complete Gemini Nano Banana prompt for this product shot - be vivid, specific, and include all visual details"
+  "imagePrompt": "Complete Gemini 3.1 Flash Image prompt for this product shot - be vivid, specific, and include all visual details"
 }
 \`\`\``;
 
@@ -618,7 +618,7 @@ Output in JSON format:
       "headline": "Slide headline",
       "bodyText": "Supporting text",
       "visualDescription": "What's shown visually (with winter sports context)",
-      "imagePrompt": "Gemini Nano Banana prompt for this slide - be vivid and detailed"
+      "imagePrompt": "Gemini 3.1 Flash Image prompt for this slide - be vivid and detailed"
     }
   ],
   "designNotes": "Overall design consistency notes for Apres Feels brand"
@@ -670,7 +670,7 @@ Include detailed recommendations for:
 2. **Typography** - Font suggestions that convey premium adventure
 3. **Photography Style** - Guidelines for mountain/ski lifestyle and product photography
 4. **Graphic Elements** - Patterns, icons, design elements inspired by mountain culture
-5. **Image Prompts** - Example Gemini Nano Banana prompts that capture the brand aesthetic
+5. **Image Prompts** - Example Gemini 3.1 Flash Image prompts that capture the brand aesthetic
 6. **Do's and Don'ts** - Visual guidelines specific to winter sports luxury branding
 7. **Platform Adaptations** - How to adapt visuals for Instagram, TikTok, Facebook, Pinterest`;
 
@@ -716,7 +716,7 @@ Output in JSON format:
     {
       "name": "Visual concept name",
       "description": "Detailed description",
-      "imagePrompt": "Gemini Nano Banana prompt - be vivid and specific"
+      "imagePrompt": "Gemini 3.1 Flash Image prompt - be vivid and specific"
     }
   ],
   "platforms": {
