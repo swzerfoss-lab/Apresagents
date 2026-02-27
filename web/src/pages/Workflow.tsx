@@ -152,11 +152,15 @@ export default function Workflow() {
     return () => clearInterval(interval);
   }, []);
 
+  // Poll workflow detail every 3 seconds when a workflow is active
   useEffect(() => {
-    if (selectedWorkflowId) {
-      fetchWorkflowDetail(selectedWorkflowId);
-    }
-  }, [selectedWorkflowId]);
+    if (!selectedWorkflowId) return;
+    fetchWorkflowDetail(selectedWorkflowId);
+    const isActive = !workflowDetail || (workflowDetail.status !== 'completed' && workflowDetail.status !== 'failed');
+    if (!isActive) return;
+    const interval = setInterval(() => fetchWorkflowDetail(selectedWorkflowId), 3000);
+    return () => clearInterval(interval);
+  }, [selectedWorkflowId, workflowDetail?.status]);
 
   const fetchData = async () => {
     try {
@@ -171,7 +175,6 @@ export default function Workflow() {
       if (schedulerData.success) setSchedulerStatus(schedulerData.scheduler);
       if (workflowsData.success) {
         setWorkflows(workflowsData.workflows);
-        // Auto-select the most recent workflow if none selected
         if (!selectedWorkflowId && workflowsData.workflows.length > 0) {
           setSelectedWorkflowId(workflowsData.workflows[0].id);
         }
@@ -183,13 +186,13 @@ export default function Workflow() {
     }
   };
 
+  // Separately poll workflow detail so content updates in real-time
   const fetchWorkflowDetail = async (id: string) => {
     try {
       const res = await fetch(`/api/workflow/${id}`);
       const data = await res.json();
       if (data.success) {
         setWorkflowDetail(data.workflow);
-        // Expand current stage
         if (data.workflow.currentStage) {
           setExpandedStages(prev => new Set([...prev, data.workflow.currentStage]));
         }
@@ -594,7 +597,7 @@ export default function Workflow() {
                           {/* Strategy Stage - Calendar */}
                           {stage.id === 'strategy' && (
                             <div>
-                              {status === 'current' && !workflowDetail.strategy && (
+                              {(status === 'current' || status === 'awaiting') && !workflowDetail.strategy && (
                                 <div className="flex flex-col items-center justify-center py-12">
                                   <Loader className="w-12 h-12 animate-spin text-alpine-600 mb-4" />
                                   <p className="text-gray-600 font-medium">Generating Content Calendar...</p>
@@ -682,7 +685,7 @@ export default function Workflow() {
                           {/* Copywriting Stage */}
                           {stage.id === 'copywriting' && (
                             <>
-                              {status === 'current' && workflowDetail.posts.length === 0 && (
+                              {(status === 'current' || status === 'awaiting') && workflowDetail.posts.length === 0 && (
                                 <div className="flex flex-col items-center justify-center py-12">
                                   <Loader className="w-12 h-12 animate-spin text-alpine-600 mb-4" />
                                   <p className="text-gray-600 font-medium">Writing Copy & Prompts...</p>
@@ -786,7 +789,7 @@ export default function Workflow() {
                           {/* Image Generation Stage */}
                           {stage.id === 'image-generation' && (
                             <>
-                              {status === 'current' && workflowDetail.posts.every(p => p.images.every(i => i.status === 'pending')) && (
+                              {(status === 'current' || status === 'awaiting') && workflowDetail.posts.every(p => p.images.every(i => i.status === 'pending')) && (
                                 <div className="flex flex-col items-center justify-center py-12">
                                   <Loader className="w-12 h-12 animate-spin text-purple-600 mb-4" />
                                   <p className="text-gray-600 font-medium">Generating Images...</p>
@@ -857,7 +860,7 @@ export default function Workflow() {
                           {/* Video Generation Stage */}
                           {stage.id === 'video-generation' && (
                             <>
-                              {status === 'current' && workflowDetail.posts.every(p => p.videos.every(v => v.status === 'pending')) && (
+                              {(status === 'current' || status === 'awaiting') && workflowDetail.posts.every(p => p.videos.every(v => v.status === 'pending')) && (
                                 <div className="flex flex-col items-center justify-center py-12">
                                   <Loader className="w-12 h-12 animate-spin text-pink-600 mb-4" />
                                   <p className="text-gray-600 font-medium">Generating Videos...</p>
