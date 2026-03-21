@@ -61,6 +61,11 @@ app.use(express.json());
 const webDistPath = path.join(__dirname, '..', 'web', 'dist');
 app.use(express.static(webDistPath));
 
+// Serve generated assets (images and videos)
+const assetsDir = path.join(process.cwd(), 'data', 'assets');
+app.use('/api/assets/images', express.static(path.join(assetsDir, 'images')));
+app.use('/api/assets/videos', express.static(path.join(assetsDir, 'videos')));
+
 // Health check
 app.get('/api/health', (_req, res) => {
   const schedulerStatus = workflowScheduler.getStatus();

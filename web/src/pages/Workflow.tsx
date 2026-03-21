@@ -796,63 +796,94 @@ export default function Workflow() {
                                   <p className="text-sm text-gray-400 mt-1">Creating visuals from prompts</p>
                                 </div>
                               )}
-                              {workflowDetail.posts.length > 0 && (
-                            <div className="grid grid-cols-2 gap-4">
-                              {workflowDetail.posts.flatMap(post =>
-                                post.images.map(image => (
-                                  <div key={image.id} className="border border-gray-200 rounded-lg p-3">
-                                    <div className="flex items-center justify-between mb-2">
-                                      <span className="text-sm font-medium">{getPlatformEmoji(post.platform)} {post.platform}</span>
-                                      <span className={`text-xs px-2 py-0.5 rounded ${
-                                        image.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                        image.status === 'generating' ? 'bg-blue-100 text-blue-700' :
-                                        image.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                        'bg-gray-100 text-gray-600'
-                                      }`}>
-                                        {image.status}
-                                      </span>
-                                    </div>
-                                    {image.url || image.filePath ? (
-                                      <div className="aspect-square bg-gray-100 rounded-lg mb-2 overflow-hidden">
-                                        <img
-                                          src={image.url || image.filePath}
-                                          alt="Generated"
-                                          className="w-full h-full object-cover"
-                                          onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="50" x="50" text-anchor="middle" fill="%23999">No Image</text></svg>'; }}
-                                        />
+                              {workflowDetail.posts.some(p => p.images.length > 0) && (
+                                <div className="space-y-6">
+                                  {workflowDetail.posts.map(post => (
+                                    post.images.length > 0 && (
+                                      <div key={post.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                                        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+                                          <span className="text-lg">{getPlatformEmoji(post.platform)}</span>
+                                          <span className="font-medium capitalize">{post.platform}</span>
+                                          <span className="text-xs text-gray-500">- {post.category}</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+                                          {post.images.map(image => (
+                                            <div key={image.id} className="space-y-3">
+                                              {/* Image Viewer */}
+                                              <div className="relative group">
+                                                {image.url ? (
+                                                  <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                                                    <img
+                                                      src={image.url}
+                                                      alt={`Generated for ${post.platform}`}
+                                                      className="w-full h-auto max-h-96 object-contain cursor-pointer"
+                                                      onClick={() => window.open(image.url, '_blank')}
+                                                    />
+                                                  </div>
+                                                ) : (
+                                                  <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200">
+                                                    {image.status === 'generating' ? (
+                                                      <div className="text-center">
+                                                        <Loader className="w-10 h-10 animate-spin text-purple-500 mx-auto mb-2" />
+                                                        <p className="text-sm text-gray-500">Generating...</p>
+                                                      </div>
+                                                    ) : image.status === 'failed' ? (
+                                                      <div className="text-center">
+                                                        <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-2" />
+                                                        <p className="text-sm text-red-500">Generation failed</p>
+                                                      </div>
+                                                    ) : (
+                                                      <div className="text-center">
+                                                        <Image className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                                                        <p className="text-sm text-gray-400">Pending</p>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                )}
+                                                {/* Status Badge */}
+                                                <span className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-full ${
+                                                  image.status === 'completed' ? 'bg-green-500 text-white' :
+                                                  image.status === 'generating' ? 'bg-blue-500 text-white' :
+                                                  image.status === 'failed' ? 'bg-red-500 text-white' :
+                                                  'bg-gray-500 text-white'
+                                                }`}>
+                                                  {image.status}
+                                                </span>
+                                              </div>
+
+                                              {/* Prompt Display */}
+                                              <div className="p-3 bg-purple-50 rounded-lg">
+                                                <p className="text-xs font-medium text-purple-700 mb-1">Prompt:</p>
+                                                <p className="text-sm text-purple-900">{image.prompt}</p>
+                                              </div>
+
+                                              {/* Re-prompt Controls */}
+                                              {(status === 'awaiting' || status === 'completed') && (
+                                                <div className="space-y-2">
+                                                  <textarea
+                                                    placeholder="Enter new prompt to regenerate this image..."
+                                                    value={regeneratingAsset === image.id ? newPrompt : ''}
+                                                    onChange={e => { setNewPrompt(e.target.value); setRegeneratingAsset(image.id); }}
+                                                    onFocus={() => { if (regeneratingAsset !== image.id) { setRegeneratingAsset(image.id); setNewPrompt(''); }}}
+                                                    className="w-full p-3 text-sm border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-300 focus:border-purple-400"
+                                                    rows={3}
+                                                  />
+                                                  <button
+                                                    onClick={() => regenerateAsset(image.id, post.id, 'image')}
+                                                    disabled={regeneratingAsset !== image.id || !newPrompt}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                  >
+                                                    <RotateCcw className="w-4 h-4" /> Regenerate Image
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
-                                    ) : (
-                                      <div className="aspect-square bg-gray-100 rounded-lg mb-2 flex items-center justify-center">
-                                        {image.status === 'generating' ? (
-                                          <Loader className="w-8 h-8 animate-spin text-gray-400" />
-                                        ) : (
-                                          <Image className="w-8 h-8 text-gray-300" />
-                                        )}
-                                      </div>
-                                    )}
-                                    <p className="text-xs text-gray-500 line-clamp-2 mb-2">{image.prompt}</p>
-                                    {(status === 'awaiting' || status === 'completed') && (
-                                      <div className="space-y-2">
-                                        <input
-                                          type="text"
-                                          placeholder="New prompt for regeneration..."
-                                          value={regeneratingAsset === image.id ? newPrompt : ''}
-                                          onChange={e => { setNewPrompt(e.target.value); setRegeneratingAsset(image.id); }}
-                                          className="w-full p-2 text-xs border border-gray-300 rounded"
-                                        />
-                                        <button
-                                          onClick={() => regenerateAsset(image.id, post.id, 'image')}
-                                          disabled={regeneratingAsset === image.id && !newPrompt}
-                                          className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200 disabled:opacity-50"
-                                        >
-                                          <RotateCcw className="w-3 h-3" /> Regenerate
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))
-                              )}
-                              </div>
+                                    )
+                                  ))}
+                                </div>
                               )}
                             </>
                           )}
@@ -867,65 +898,99 @@ export default function Workflow() {
                                   <p className="text-sm text-gray-400 mt-1">Creating videos with Veo 3</p>
                                 </div>
                               )}
-                              {workflowDetail.posts.length > 0 && (
-                            <div className="grid grid-cols-2 gap-4">
-                              {workflowDetail.posts.flatMap(post =>
-                                post.videos.map(video => (
-                                  <div key={video.id} className="border border-gray-200 rounded-lg p-3">
-                                    <div className="flex items-center justify-between mb-2">
-                                      <span className="text-sm font-medium">{getPlatformEmoji(post.platform)} {post.platform}</span>
-                                      <span className={`text-xs px-2 py-0.5 rounded ${
-                                        video.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                        video.status === 'generating' ? 'bg-blue-100 text-blue-700' :
-                                        video.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                        'bg-gray-100 text-gray-600'
-                                      }`}>
-                                        {video.status}
-                                      </span>
-                                    </div>
-                                    {video.url || video.filePath ? (
-                                      <div className="aspect-video bg-gray-100 rounded-lg mb-2 overflow-hidden">
-                                        <video
-                                          src={video.url || video.filePath}
-                                          controls
-                                          className="w-full h-full object-cover"
-                                        />
+                              {workflowDetail.posts.some(p => p.videos.length > 0) && (
+                                <div className="space-y-6">
+                                  {workflowDetail.posts.map(post => (
+                                    post.videos.length > 0 && (
+                                      <div key={post.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                                        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+                                          <span className="text-lg">{getPlatformEmoji(post.platform)}</span>
+                                          <span className="font-medium capitalize">{post.platform}</span>
+                                          <span className="text-xs text-gray-500">- {post.category}</span>
+                                        </div>
+                                        <div className="p-4 space-y-4">
+                                          {post.videos.map(video => (
+                                            <div key={video.id} className="space-y-3">
+                                              {/* Video Player */}
+                                              <div className="relative">
+                                                {video.url ? (
+                                                  <div className="bg-black rounded-lg overflow-hidden border border-gray-200">
+                                                    <video
+                                                      src={video.url}
+                                                      controls
+                                                      playsInline
+                                                      preload="metadata"
+                                                      className="w-full max-h-[500px]"
+                                                      style={{ aspectRatio: '16/9' }}
+                                                    >
+                                                      Your browser does not support the video tag.
+                                                    </video>
+                                                  </div>
+                                                ) : (
+                                                  <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center border border-gray-200">
+                                                    {video.status === 'generating' ? (
+                                                      <div className="text-center">
+                                                        <Loader className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-3" />
+                                                        <p className="text-sm text-gray-300">Generating video...</p>
+                                                        <p className="text-xs text-gray-500 mt-1">This may take a few minutes</p>
+                                                      </div>
+                                                    ) : video.status === 'failed' ? (
+                                                      <div className="text-center">
+                                                        <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
+                                                        <p className="text-sm text-red-400">Video generation failed</p>
+                                                      </div>
+                                                    ) : (
+                                                      <div className="text-center">
+                                                        <Video className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                                                        <p className="text-sm text-gray-400">Pending generation</p>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                )}
+                                                {/* Status Badge */}
+                                                <span className={`absolute top-2 right-2 text-xs px-2 py-1 rounded-full ${
+                                                  video.status === 'completed' ? 'bg-green-500 text-white' :
+                                                  video.status === 'generating' ? 'bg-blue-500 text-white' :
+                                                  video.status === 'failed' ? 'bg-red-500 text-white' :
+                                                  'bg-gray-500 text-white'
+                                                }`}>
+                                                  {video.status}
+                                                </span>
+                                              </div>
+
+                                              {/* Prompt Display */}
+                                              <div className="p-3 bg-pink-50 rounded-lg">
+                                                <p className="text-xs font-medium text-pink-700 mb-1">Prompt:</p>
+                                                <p className="text-sm text-pink-900">{video.prompt}</p>
+                                              </div>
+
+                                              {/* Re-prompt Controls */}
+                                              {(status === 'awaiting' || status === 'completed') && (
+                                                <div className="space-y-2">
+                                                  <textarea
+                                                    placeholder="Enter new prompt to regenerate this video..."
+                                                    value={regeneratingAsset === video.id ? newPrompt : ''}
+                                                    onChange={e => { setNewPrompt(e.target.value); setRegeneratingAsset(video.id); }}
+                                                    onFocus={() => { if (regeneratingAsset !== video.id) { setRegeneratingAsset(video.id); setNewPrompt(''); }}}
+                                                    className="w-full p-3 text-sm border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-pink-300 focus:border-pink-400"
+                                                    rows={3}
+                                                  />
+                                                  <button
+                                                    onClick={() => regenerateAsset(video.id, post.id, 'video')}
+                                                    disabled={regeneratingAsset !== video.id || !newPrompt}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-pink-600 text-white rounded-lg text-sm hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                  >
+                                                    <RotateCcw className="w-4 h-4" /> Regenerate Video
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
-                                    ) : (
-                                      <div className="aspect-video bg-gray-100 rounded-lg mb-2 flex items-center justify-center">
-                                        {video.status === 'generating' ? (
-                                          <Loader className="w-8 h-8 animate-spin text-gray-400" />
-                                        ) : (
-                                          <Video className="w-8 h-8 text-gray-300" />
-                                        )}
-                                      </div>
-                                    )}
-                                    <p className="text-xs text-gray-500 line-clamp-2 mb-2">{video.prompt}</p>
-                                    {(status === 'awaiting' || status === 'completed') && (
-                                      <div className="space-y-2">
-                                        <input
-                                          type="text"
-                                          placeholder="New prompt for regeneration..."
-                                          value={regeneratingAsset === video.id ? newPrompt : ''}
-                                          onChange={e => { setNewPrompt(e.target.value); setRegeneratingAsset(video.id); }}
-                                          className="w-full p-2 text-xs border border-gray-300 rounded"
-                                        />
-                                        <button
-                                          onClick={() => regenerateAsset(video.id, post.id, 'video')}
-                                          disabled={regeneratingAsset === video.id && !newPrompt}
-                                          className="flex items-center gap-1 px-2 py-1 bg-pink-100 text-pink-700 rounded text-xs hover:bg-pink-200 disabled:opacity-50"
-                                        >
-                                          <RotateCcw className="w-3 h-3" /> Regenerate
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))
-                              )}
-                              {workflowDetail.posts.every(p => p.videos.length === 0) && (
-                                <p className="col-span-2 text-center text-gray-500 py-8">No videos generated for this workflow</p>
-                              )}
-                              </div>
+                                    )
+                                  ))}
+                                </div>
                               )}
                             </>
                           )}

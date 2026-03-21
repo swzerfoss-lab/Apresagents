@@ -10,6 +10,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ContentStrategyAgent } from './ContentStrategyAgent.js';
 import { CopywritingAgent } from './CopywritingAgent.js';
 import { VisualContentAgent } from './VisualContentAgent.js';
@@ -54,6 +56,7 @@ export class WeeklyWorkflowOrchestrator {
   private storage: ContentStorage;
   private brandConfig: BrandConfig;
   private currentWorkflow: WeeklyWorkflow | null = null;
+  private assetsDir: string;
 
   constructor(brandConfig: BrandConfig) {
     this.brandConfig = brandConfig;
@@ -69,6 +72,11 @@ export class WeeklyWorkflowOrchestrator {
       pinterest: new PinterestAgent(brandConfig),
     };
     this.storage = new ContentStorage();
+
+    // Setup assets directory for generated images and videos
+    this.assetsDir = path.join(process.cwd(), 'data', 'assets');
+    fs.mkdirSync(path.join(this.assetsDir, 'images'), { recursive: true });
+    fs.mkdirSync(path.join(this.assetsDir, 'videos'), { recursive: true });
   }
 
   /**
@@ -356,10 +364,15 @@ export class WeeklyWorkflowOrchestrator {
 
       if (request.type === 'image') {
         const aspectRatio = this.getImageAspectRatio(post.platform, post.contentType);
-        const result = await this.visualAgent.generateImage(request.newPrompt, { aspectRatio });
+        const imagesDir = path.join(this.assetsDir, 'images');
+        const result = await this.visualAgent.generateImage(request.newPrompt, {
+          aspectRatio,
+          outputDirectory: imagesDir,
+        });
 
         if (result.success && result.data) {
-          asset.url = result.data.filePath;
+          const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.png`;
+          asset.url = `/api/assets/images/${fileName}`;
           asset.filePath = result.data.filePath;
           asset.status = 'completed';
           asset.generatedAt = new Date();
@@ -367,10 +380,15 @@ export class WeeklyWorkflowOrchestrator {
           asset.status = 'failed';
         }
       } else {
-        const result = await this.videoAgent.generateVideo(request.newPrompt, { duration: 8 });
+        const videosDir = path.join(this.assetsDir, 'videos');
+        const result = await this.videoAgent.generateVideo(request.newPrompt, {
+          duration: 8,
+          outputDirectory: videosDir,
+        });
 
         if (result.success && result.data) {
-          asset.url = result.data.videoUrl;
+          const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.mp4`;
+          asset.url = `/api/assets/videos/${fileName}`;
           asset.filePath = result.data.filePath;
           asset.status = 'completed';
           asset.generatedAt = new Date();
@@ -582,15 +600,22 @@ export class WeeklyWorkflowOrchestrator {
         try {
           image.status = 'generating';
 
+          // Save progress to show generating status
+          await this.storage.saveWorkflow(this.currentWorkflow!);
+
           // Use correct method signature - generateImage takes (prompt, options)
           const aspectRatio = this.getImageAspectRatio(post.platform, post.contentType);
+          const imagesDir = path.join(this.assetsDir, 'images');
           const result = await this.visualAgent.generateImage(image.prompt, {
             aspectRatio,
+            outputDirectory: imagesDir,
           });
 
           if (result.success && result.data) {
             // GeneratedImage has: base64Data, mimeType, prompt, filePath
-            image.url = result.data.filePath; // Use filePath if saved
+            // Set URL to be accessible via the static file server
+            const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${image.id}.png`;
+            image.url = `/api/assets/images/${fileName}`;
             image.filePath = result.data.filePath;
             image.status = 'completed';
             image.generatedAt = new Date();
@@ -630,15 +655,22 @@ export class WeeklyWorkflowOrchestrator {
         try {
           video.status = 'generating';
 
+          // Save progress to show generating status
+          await this.storage.saveWorkflow(this.currentWorkflow!);
+
           // Use correct method signature - generateVideo takes (prompt, options)
           // Veo 3 supports 5 or 8 second videos
+          const videosDir = path.join(this.assetsDir, 'videos');
           const result = await this.videoAgent.generateVideo(video.prompt, {
             duration: 8, // Use 8 seconds for more content
+            outputDirectory: videosDir,
           });
 
           if (result.success && result.data) {
             // GeneratedVideo has: videoUrl, videoData, mimeType, prompt, duration, resolution, filePath, hasAudio
-            video.url = result.data.videoUrl;
+            // Set URL to be accessible via the static file server
+            const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${video.id}.mp4`;
+            video.url = `/api/assets/videos/${fileName}`;
             video.filePath = result.data.filePath;
             video.status = 'completed';
             video.generatedAt = new Date();
