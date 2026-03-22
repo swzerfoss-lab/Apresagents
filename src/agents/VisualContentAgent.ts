@@ -36,7 +36,7 @@ export interface ImageGenerationOptions {
  */
 export class VisualContentAgent extends BaseAgent {
   private genAI: GoogleGenAI | null = null;
-  private imageModelName: string = 'gemini-2.0-flash-exp-image-generation'; // Gemini 3.1 Flash Image model
+  private imageModelName: string = 'gemini-2.0-flash-exp'; // Gemini 2.0 Flash with native image generation
 
   constructor(brandConfig: BrandConfig) {
     super(
@@ -129,7 +129,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
         model: this.imageModelName,
         contents: enhancedPrompt,
         config: {
-          responseModalities: ['image', 'text'],
+          responseModalities: ['Image', 'Text'],
         },
       });
 
