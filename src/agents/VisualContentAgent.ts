@@ -37,7 +37,7 @@ export interface ImageGenerationOptions {
  */
 export class VisualContentAgent extends BaseAgent {
   private genAI: GoogleGenAI | null = null;
-  private imageModelName: string = 'imagen-3.0-generate-002'; // Imagen 3 for image generation
+  private imageModelName: string = 'imagen-4.0-generate-001'; // Imagen 4 for image generation
 
   constructor(brandConfig: BrandConfig) {
     super(
