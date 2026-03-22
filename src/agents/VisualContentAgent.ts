@@ -9,6 +9,7 @@ import type {
   ContentType,
   AgentResponse,
 } from '../types/index.js';
+import { validateBufferSize, MAX_IMAGE_SIZE } from '../utils/async.js';
 
 /**
  * Generated image result from Gemini 3.1 Flash Image
@@ -153,6 +154,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
             const fileName = `apresfeels_${Date.now()}.png`;
             const filePath = path.join(options.outputDirectory, fileName);
             const buffer = Buffer.from(imageData.base64Data, 'base64');
+            validateBufferSize(buffer, MAX_IMAGE_SIZE, 'Image');
             fs.writeFileSync(filePath, buffer);
             imageData.filePath = filePath;
           }
@@ -189,6 +191,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
     if (!result.data.filePath) {
       try {
         const buffer = Buffer.from(result.data.base64Data, 'base64');
+        validateBufferSize(buffer, MAX_IMAGE_SIZE, 'Image');
         fs.writeFileSync(outputPath, buffer);
         return {
           success: true,

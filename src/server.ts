@@ -80,18 +80,49 @@ const assetsDir = path.join(process.cwd(), 'data', 'assets');
 app.use('/api/assets/images', express.static(path.join(assetsDir, 'images')));
 app.use('/api/assets/videos', express.static(path.join(assetsDir, 'videos')));
 
-// Health check
-app.get('/api/health', (_req, res) => {
+// Health check with deep checks
+app.get('/api/health', async (_req, res) => {
+  const checks: Record<string, { status: 'ok' | 'error' | 'degraded'; message?: string }> = {};
+
+  // Check scheduler
   const schedulerStatus = workflowScheduler.getStatus();
-  res.json({
-    status: 'ok',
-    agents: {
-      manager: 'ready',
-      video: videoAgent.isVideoGenerationAvailable() ? 'ready' : 'no-api-key',
-      strategy: 'ready',
-      brandVoice: 'ready',
-      workflowOrchestrator: 'ready',
-    },
+  checks.scheduler = { status: 'ok' };
+
+  // Check video generation API availability
+  checks.videoApi = videoAgent.isVideoGenerationAvailable()
+    ? { status: 'ok' }
+    : { status: 'degraded', message: 'GOOGLE_API_KEY not configured' };
+
+  // Check image generation (uses same API as video)
+  checks.imageApi = imageAgent.isImageGenerationAvailable()
+    ? { status: 'ok' }
+    : { status: 'degraded', message: 'GOOGLE_API_KEY not configured' };
+
+  // Check content generation (Claude)
+  checks.contentApi = process.env.ANTHROPIC_API_KEY
+    ? { status: 'ok' }
+    : { status: 'degraded', message: 'ANTHROPIC_API_KEY not configured' };
+
+  // Check storage accessibility
+  try {
+    await contentStorage.getStorageStats();
+    checks.storage = { status: 'ok' };
+  } catch (error) {
+    checks.storage = {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Storage unavailable',
+    };
+  }
+
+  // Determine overall status
+  const hasError = Object.values(checks).some((c) => c.status === 'error');
+  const hasDegraded = Object.values(checks).some((c) => c.status === 'degraded');
+  const overallStatus = hasError ? 'error' : hasDegraded ? 'degraded' : 'ok';
+
+  res.status(hasError ? 503 : 200).json({
+    status: overallStatus,
+    timestamp: new Date().toISOString(),
+    checks,
     scheduler: {
       isRunning: schedulerStatus.isRunning,
       nextScheduledRun: schedulerStatus.nextScheduledRun,

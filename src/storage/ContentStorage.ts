@@ -6,7 +6,6 @@
  */
 
 import fs from 'fs/promises';
-import fsSync from 'fs';
 import path from 'path';
 import { WeeklyWorkflow, ReadyPost, GeneratedAsset } from '../types/index.js';
 
@@ -16,35 +15,24 @@ export class ContentStorage {
   private postsDir: string;
   private assetsDir: string;
   private initialized: boolean = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor(baseDir?: string) {
     this.storageDir = baseDir || path.join(process.cwd(), 'data', 'content');
     this.workflowsFile = path.join(this.storageDir, 'workflows.json');
     this.postsDir = path.join(this.storageDir, 'posts');
     this.assetsDir = path.join(this.storageDir, 'assets');
-    // Use synchronous initialization to ensure directories exist immediately
-    this.initializeStorageSync();
+    // Start async initialization in background (non-blocking)
+    this.initPromise = this.initializeStorage();
   }
 
   /**
-   * Initialize storage directories synchronously
+   * Ensure storage is initialized before any operation
    */
-  private initializeStorageSync(): void {
-    try {
-      fsSync.mkdirSync(this.storageDir, { recursive: true });
-      fsSync.mkdirSync(this.postsDir, { recursive: true });
-      fsSync.mkdirSync(this.assetsDir, { recursive: true });
-      fsSync.mkdirSync(path.join(this.assetsDir, 'images'), { recursive: true });
-      fsSync.mkdirSync(path.join(this.assetsDir, 'videos'), { recursive: true });
-
-      // Initialize workflows file if it doesn't exist
-      if (!fsSync.existsSync(this.workflowsFile)) {
-        fsSync.writeFileSync(this.workflowsFile, JSON.stringify({ workflows: [] }, null, 2));
-      }
-      this.initialized = true;
-      console.log('📁 Content storage initialized at:', this.storageDir);
-    } catch (error) {
-      console.error('Error initializing storage:', error);
+  private async ensureInitialized(): Promise<void> {
+    if (this.initialized) return;
+    if (this.initPromise) {
+      await this.initPromise;
     }
   }
 
@@ -68,8 +56,10 @@ export class ContentStorage {
         await fs.writeFile(this.workflowsFile, JSON.stringify({ workflows: [] }, null, 2));
       }
       this.initialized = true;
+      console.log('📁 Content storage initialized at:', this.storageDir);
     } catch (error) {
       console.error('Error initializing storage:', error);
+      throw error; // Re-throw to ensure callers know initialization failed
     }
   }
 
@@ -77,6 +67,7 @@ export class ContentStorage {
    * Save a workflow
    */
   async saveWorkflow(workflow: WeeklyWorkflow): Promise<void> {
+    await this.ensureInitialized();
     const data = await this.loadWorkflowsData();
     const existingIndex = data.workflows.findIndex((w: WeeklyWorkflow) => w.id === workflow.id);
 
@@ -142,6 +133,7 @@ export class ContentStorage {
    * Save a post
    */
   async savePost(post: ReadyPost): Promise<void> {
+    await this.ensureInitialized();
     const postFile = path.join(this.postsDir, `${post.id}.json`);
     await fs.writeFile(postFile, JSON.stringify(post, null, 2));
   }
@@ -151,6 +143,7 @@ export class ContentStorage {
    */
   async getPost(id: string): Promise<ReadyPost | null> {
     try {
+      await this.ensureInitialized();
       const postFile = path.join(this.postsDir, `${id}.json`);
       const content = await fs.readFile(postFile, 'utf-8');
       return this.deserializePost(JSON.parse(content));
@@ -254,6 +247,7 @@ export class ContentStorage {
     data: Buffer,
     extension: string
   ): Promise<string> {
+    await this.ensureInitialized();
     const subDir = asset.type === 'image' ? 'images' : 'videos';
     const filename = `${asset.id}.${extension}`;
     const filePath = path.join(this.assetsDir, subDir, filename);
@@ -330,7 +324,7 @@ export class ContentStorage {
 
   private async loadWorkflowsData(): Promise<{ workflows: WeeklyWorkflow[] }> {
     try {
-      await this.initializeStorage();
+      await this.ensureInitialized();
       const content = await fs.readFile(this.workflowsFile, 'utf-8');
       return JSON.parse(content);
     } catch {

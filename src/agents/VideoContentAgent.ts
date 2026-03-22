@@ -8,6 +8,7 @@ import type {
   SocialPlatform,
   AgentResponse,
 } from '../types/index.js';
+import { validateBufferSize, MAX_VIDEO_SIZE } from '../utils/async.js';
 
 /**
  * Generated video result from Google Veo 3
@@ -229,7 +230,9 @@ Always create prompts that will generate cinematic, on-brand video content captu
 
       // Poll for the operation to complete
       let attempts = 0;
+      let consecutiveErrors = 0;
       const maxAttempts = 120; // Wait up to 10 minutes (120 * 5s = 600s)
+      const maxConsecutiveErrors = 5; // Fail after 5 consecutive poll errors
       const pollInterval = 5000; // 5 seconds
 
       while (!operation.done && attempts < maxAttempts) {
@@ -241,8 +244,18 @@ Always create prompts that will generate cinematic, on-brand video content captu
         if (operation.name) {
           try {
             operation = await this.genAI.operations.getVideosOperation({ operation: operation });
+            consecutiveErrors = 0; // Reset on success
           } catch (pollError) {
-            console.warn('Poll error, continuing:', pollError);
+            consecutiveErrors++;
+            const errorMessage = pollError instanceof Error ? pollError.message : String(pollError);
+            console.warn(`Poll error (${consecutiveErrors}/${maxConsecutiveErrors}):`, errorMessage);
+
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+              return {
+                success: false,
+                error: `Video generation polling failed after ${consecutiveErrors} consecutive errors: ${errorMessage}`,
+              };
+            }
           }
         }
       }
@@ -278,18 +291,21 @@ Always create prompts that will generate cinematic, on-brand video content captu
           if (videoData.videoData) {
             // Save from base64 video bytes
             const buffer = Buffer.from(videoData.videoData, 'base64');
+            validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
             fs.writeFileSync(filePath, buffer);
             videoData.filePath = filePath;
           } else if (videoData.videoUrl) {
             // Download from URL
             const videoResponse = await fetch(videoData.videoUrl);
             const buffer = Buffer.from(await videoResponse.arrayBuffer());
+            validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
             fs.writeFileSync(filePath, buffer);
             videoData.filePath = filePath;
           }
         } catch (downloadError) {
           // Video URL is still available even if download fails
-          console.warn('Could not save video locally:', downloadError);
+          const errMsg = downloadError instanceof Error ? downloadError.message : String(downloadError);
+          console.warn('Could not save video locally:', errMsg);
         }
       }
 

@@ -37,6 +37,7 @@ import {
   AssetRegenerateRequest,
 } from '../types/index.js';
 import { ContentStorage } from '../storage/ContentStorage.js';
+import { parallelLimit } from '../utils/async.js';
 
 export class WeeklyWorkflowOrchestrator {
   private strategyAgent: ContentStrategyAgent;
@@ -590,17 +591,25 @@ export class WeeklyWorkflowOrchestrator {
   private async executeImageGenerationStage(): Promise<void> {
     this.currentWorkflow!.currentStage = 'image-generation';
 
+    // Flatten all pending images into a single array for parallel processing
+    const pendingImages: Array<{ post: ReadyPost; image: GeneratedAsset }> = [];
     for (const post of this.currentWorkflow!.posts) {
       for (const image of post.images) {
-        if (image.status !== 'pending') continue;
+        if (image.status === 'pending') {
+          pendingImages.push({ post, image });
+        }
+      }
+    }
 
+    console.log(`  Processing ${pendingImages.length} images in parallel (concurrency: 3)...`);
+
+    // Process images in parallel with concurrency limit of 3
+    await parallelLimit(
+      pendingImages,
+      async ({ post, image }) => {
         try {
           image.status = 'generating';
 
-          // Save progress to show generating status
-          await this.storage.saveWorkflow(this.currentWorkflow!);
-
-          // Use correct method signature - generateImage takes (prompt, options)
           const aspectRatio = this.getImageAspectRatio(post.platform, post.contentType);
           const imagesDir = path.join(this.assetsDir, 'images');
           const result = await this.visualAgent.generateImage(image.prompt, {
@@ -609,18 +618,12 @@ export class WeeklyWorkflowOrchestrator {
           });
 
           if (result.success && result.data) {
-            // GeneratedImage has: base64Data, mimeType, prompt, filePath
-            // Set URL to be accessible via the static file server
             const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${image.id}.png`;
             image.url = `/api/assets/images/${fileName}`;
             image.filePath = result.data.filePath;
             image.status = 'completed';
             image.generatedAt = new Date();
             this.currentWorkflow!.metrics.imagesGenerated++;
-
-            // Save progress after each image
-            await this.storage.saveWorkflow(this.currentWorkflow!);
-
             console.log(`  ✓ Generated image for: ${post.id}`);
           } else {
             image.status = 'failed';
@@ -635,8 +638,12 @@ export class WeeklyWorkflowOrchestrator {
             post.id
           );
         }
-      }
-    }
+      },
+      3 // Concurrency limit
+    );
+
+    // Save progress after all images are processed
+    await this.storage.saveWorkflow(this.currentWorkflow!);
   }
 
   /**
@@ -645,27 +652,32 @@ export class WeeklyWorkflowOrchestrator {
   private async executeVideoGenerationStage(): Promise<void> {
     this.currentWorkflow!.currentStage = 'video-generation';
 
+    // Flatten all pending videos into a single array for parallel processing
+    const pendingVideos: Array<{ post: ReadyPost; video: GeneratedAsset }> = [];
     for (const post of this.currentWorkflow!.posts) {
       for (const video of post.videos) {
-        if (video.status !== 'pending') continue;
+        if (video.status === 'pending') {
+          pendingVideos.push({ post, video });
+        }
+      }
+    }
 
+    console.log(`  Processing ${pendingVideos.length} videos in parallel (concurrency: 2)...`);
+
+    // Process videos in parallel with concurrency limit of 2 (videos are expensive)
+    await parallelLimit(
+      pendingVideos,
+      async ({ post, video }) => {
         try {
           video.status = 'generating';
 
-          // Save progress to show generating status
-          await this.storage.saveWorkflow(this.currentWorkflow!);
-
-          // Use correct method signature - generateVideo takes (prompt, options)
-          // Veo 3 supports 5 or 8 second videos
           const videosDir = path.join(this.assetsDir, 'videos');
           const result = await this.videoAgent.generateVideo(video.prompt, {
-            duration: 8, // Use 8 seconds for more content
+            duration: 8,
             outputDirectory: videosDir,
           });
 
           if (result.success && result.data) {
-            // GeneratedVideo has: videoUrl, videoData, mimeType, prompt, duration, resolution, filePath, hasAudio
-            // Set URL to be accessible via the static file server
             const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${video.id}.mp4`;
             video.url = `/api/assets/videos/${fileName}`;
             video.filePath = result.data.filePath;
@@ -673,10 +685,6 @@ export class WeeklyWorkflowOrchestrator {
             video.generatedAt = new Date();
             video.metadata = { prompt: result.data.prompt };
             this.currentWorkflow!.metrics.videosGenerated++;
-
-            // Save progress after each video
-            await this.storage.saveWorkflow(this.currentWorkflow!);
-
             console.log(`  ✓ Generated video for: ${post.id}`);
           } else {
             video.status = 'failed';
@@ -691,8 +699,12 @@ export class WeeklyWorkflowOrchestrator {
             post.id
           );
         }
-      }
-    }
+      },
+      2 // Lower concurrency for videos (expensive operations)
+    );
+
+    // Save progress after all videos are processed
+    await this.storage.saveWorkflow(this.currentWorkflow!);
   }
 
   /**
