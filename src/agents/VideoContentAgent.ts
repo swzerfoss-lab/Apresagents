@@ -168,8 +168,10 @@ Always create prompts that will generate cinematic, on-brand video content captu
       const enhancedPrompt = this.enhancePromptForBrand(prompt, options.style);
       const modelName = options.useFastModel ? this.fastVideoModelName : this.videoModelName;
 
+      console.log(`Starting video generation with model: ${modelName}`);
+
       // Generate video using Veo 3 - returns a long-running operation
-      const operation = await this.genAI.models.generateVideos({
+      let operation = await this.genAI.models.generateVideos({
         model: modelName,
         prompt: enhancedPrompt,
         config: {
@@ -178,23 +180,32 @@ Always create prompts that will generate cinematic, on-brand video content captu
         },
       });
 
-      // Wait for the operation to complete (poll for result)
-      let result = operation;
+      // Poll for the operation to complete
       let attempts = 0;
-      const maxAttempts = 60; // Wait up to 5 minutes (60 * 5s = 300s)
+      const maxAttempts = 120; // Wait up to 10 minutes (120 * 5s = 600s)
+      const pollInterval = 5000; // 5 seconds
 
-      while (!result.done && attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
+      while (!operation.done && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
         attempts++;
-        // The operation should complete and have a response when done
+        console.log(`Polling video generation... attempt ${attempts}/${maxAttempts}`);
+
+        // Poll operation status using the operation name
+        if (operation.name) {
+          try {
+            operation = await this.genAI.operations.getVideosOperation({ operation: operation });
+          } catch (pollError) {
+            console.warn('Poll error, continuing:', pollError);
+          }
+        }
       }
 
-      if (!result.done) {
-        return { success: false, error: 'Video generation timed out' };
+      if (!operation.done) {
+        return { success: false, error: `Video generation timed out after ${maxAttempts * pollInterval / 1000} seconds` };
       }
 
       // Check for video in response
-      const response = result.response;
+      const response = operation.response;
       if (!response?.generatedVideos || response.generatedVideos.length === 0) {
         return { success: false, error: 'No video generated in response' };
       }

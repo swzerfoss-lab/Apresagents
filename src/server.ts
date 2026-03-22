@@ -190,8 +190,13 @@ app.post('/api/video/generate', async (req, res) => {
 
 /**
  * Generate actual video with Veo 3 from a prompt
+ * Video generation can take several minutes, so we set a long timeout
  */
 app.post('/api/video/render', async (req, res) => {
+  // Set a 10-minute timeout for video generation
+  req.setTimeout(600000);
+  res.setTimeout(600000);
+
   try {
     const { prompt, duration, aspectRatio, style } = req.body;
 
