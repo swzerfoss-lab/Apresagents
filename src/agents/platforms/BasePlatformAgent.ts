@@ -6,7 +6,6 @@ import type {
   Product,
   AgentResponse,
   GeneratedContent,
-  ContentMetadata,
 } from '../../types/index.js';
 
 /**

@@ -105,7 +105,7 @@ app.get('/api/products', (_req, res) => {
  */
 app.post('/api/content/generate', async (req, res) => {
   try {
-    const { topic, platforms, category, productId } = req.body;
+    const { topic, platforms, productId } = req.body;
 
     if (!topic || !platforms || platforms.length === 0) {
       return res.status(400).json({ error: 'Topic and platforms are required' });

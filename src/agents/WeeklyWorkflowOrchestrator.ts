@@ -24,7 +24,6 @@ import { PinterestAgent } from './platforms/PinterestAgent.js';
 import {
   BrandConfig,
   WeeklyWorkflow,
-  WeeklyContentPlan,
   PlannedPost,
   GeneratedAsset,
   ReadyPost,
@@ -32,9 +31,7 @@ import {
   WorkflowStage,
   SocialPlatform,
   ContentType,
-  ContentCategory,
   CalendarEntry,
-  StageApproval,
   ContentEditRequest,
   CalendarEditRequest,
   AssetRegenerateRequest,
@@ -397,7 +394,7 @@ export class WeeklyWorkflowOrchestrator {
           asset.status = 'failed';
         }
       }
-    } catch (error) {
+    } catch (_error) {
       asset.status = 'failed';
     }
 

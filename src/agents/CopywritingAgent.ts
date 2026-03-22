@@ -1,8 +1,6 @@
 import { BaseAgent } from './BaseAgent.js';
 import type {
   BrandConfig,
-  ContentRequest,
-  GeneratedContent,
   Product,
   SocialPlatform,
   AgentResponse,

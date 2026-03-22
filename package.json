@@ -13,8 +13,12 @@
     "generate": "tsx src/cli.ts generate",
     "campaign": "tsx src/cli.ts campaign",
     "calendar": "tsx src/cli.ts calendar",
-    "lint": "eslint src/**/*.ts",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "ai",
@@ -40,14 +44,22 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.0",
     "@types/inquirer": "^9.0.7",
     "@types/node": "^20.11.0",
+    "@types/supertest": "^7.2.0",
     "@types/uuid": "^10.0.0",
+    "@vitest/coverage-v8": "^4.1.0",
     "concurrently": "^8.2.0",
+    "eslint": "^10.1.0",
+    "globals": "^17.4.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.57.1",
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=18.0.0"

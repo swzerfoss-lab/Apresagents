@@ -6,7 +6,6 @@ import type {
   ContentCalendar,
   CalendarEntry,
   SocialPlatform,
-  ContentCategory,
   AgentResponse,
 } from '../types/index.js';
 

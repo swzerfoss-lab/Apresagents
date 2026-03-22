@@ -14,7 +14,6 @@ import type {
   BrandConfig,
   SocialPlatform,
   ContentType,
-  ContentRequest,
   GeneratedContent,
   ContentCalendar,
   ContentCalendarRequest,

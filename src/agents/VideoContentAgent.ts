@@ -337,7 +337,7 @@ Always create prompts that will generate cinematic, on-brand video content captu
     product?: Product
   ): Promise<AgentResponse<VideoConcept>> {
     const durationMap = { '15s': 5, '30s': 8, '60s': 8 };
-    const videoDuration = durationMap[duration];
+    const _videoDuration = durationMap[duration]; // Reserved for future use
 
     const prompt = `Create a complete video concept for Apres Feels: "${topic}"
 
