@@ -37,7 +37,7 @@ export interface ImageGenerationOptions {
  */
 export class VisualContentAgent extends BaseAgent {
   private genAI: GoogleGenAI | null = null;
-  private imageModelName: string = 'gemini-2.0-flash-exp'; // Gemini 2.0 Flash with native image generation
+  private imageModelName: string = 'imagen-3.0-generate-002'; // Imagen 3 for image generation
 
   constructor(brandConfig: BrandConfig) {
     super(
@@ -108,7 +108,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
   }
 
   /**
-   * Generate an image using Gemini 3.1 Flash Image
+   * Generate an image using Imagen 3
    */
   async generateImage(
     prompt: string,
@@ -117,7 +117,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
     if (!this.genAI) {
       return {
         success: false,
-        error: 'Gemini API key not configured. Set GEMINI_API_KEY in your environment.',
+        error: 'Google API key not configured. Set GOOGLE_API_KEY in your environment.',
       };
     }
 
@@ -125,45 +125,55 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
       // Enhance prompt with brand context
       const enhancedPrompt = this.enhancePromptForBrand(prompt, options.style);
 
-      // Generate image using Gemini 3.1 Flash Image
-      const response = await this.genAI.models.generateContent({
+      // Map aspect ratio to Imagen 3 format
+      const aspectRatioMap: Record<string, string> = {
+        '1:1': '1:1',
+        '16:9': '16:9',
+        '9:16': '9:16',
+        '4:5': '4:3', // Closest supported ratio
+        '4:3': '4:3',
+        '3:4': '3:4',
+      };
+      const aspectRatio = aspectRatioMap[options.aspectRatio || '1:1'] || '1:1';
+
+      // Generate image using Imagen 3
+      const response = await this.genAI.models.generateImages({
         model: this.imageModelName,
-        contents: enhancedPrompt,
+        prompt: enhancedPrompt,
         config: {
-          responseModalities: ['Image', 'Text'],
+          numberOfImages: 1,
+          aspectRatio: aspectRatio,
         },
       });
 
       // Extract image data from response
-      const parts = response.candidates?.[0]?.content?.parts;
-      if (!parts || parts.length === 0) {
+      const generatedImages = response.generatedImages;
+      if (!generatedImages || generatedImages.length === 0) {
         return { success: false, error: 'No image generated in response' };
       }
 
-      // Find the image part in the response
-      for (const part of parts) {
-        if (part.inlineData) {
-          const imageData: GeneratedImage = {
-            base64Data: part.inlineData.data || '',
-            mimeType: part.inlineData.mimeType || 'image/png',
-            prompt: enhancedPrompt,
-          };
-
-          // Optionally save to file
-          if (options.outputDirectory) {
-            const fileName = `apresfeels_${Date.now()}.png`;
-            const filePath = path.join(options.outputDirectory, fileName);
-            const buffer = Buffer.from(imageData.base64Data, 'base64');
-            validateBufferSize(buffer, MAX_IMAGE_SIZE, 'Image');
-            fs.writeFileSync(filePath, buffer);
-            imageData.filePath = filePath;
-          }
-
-          return { success: true, data: imageData };
-        }
+      const generatedImage = generatedImages[0];
+      if (!generatedImage.image?.imageBytes) {
+        return { success: false, error: 'No image data in response' };
       }
 
-      return { success: false, error: 'No image data found in response' };
+      const imageData: GeneratedImage = {
+        base64Data: generatedImage.image.imageBytes,
+        mimeType: 'image/png',
+        prompt: enhancedPrompt,
+      };
+
+      // Optionally save to file
+      if (options.outputDirectory) {
+        const fileName = `apresfeels_${Date.now()}.png`;
+        const filePath = path.join(options.outputDirectory, fileName);
+        const buffer = Buffer.from(imageData.base64Data, 'base64');
+        validateBufferSize(buffer, MAX_IMAGE_SIZE, 'Image');
+        fs.writeFileSync(filePath, buffer);
+        imageData.filePath = filePath;
+      }
+
+      return { success: true, data: imageData };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error generating image';
       return { success: false, error: errorMessage };
