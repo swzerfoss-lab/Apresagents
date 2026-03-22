@@ -7,6 +7,7 @@ import { config } from 'dotenv';
 import {
   SocialMediaManagerAgent,
   VideoContentAgent,
+  VisualContentAgent,
   ContentStrategyAgent,
   BrandVoiceAgent,
   WeeklyWorkflowOrchestrator,
@@ -34,6 +35,7 @@ if (!configCheck.valid) {
 const brandConfig = getBrandConfig();
 const manager = new SocialMediaManagerAgent(brandConfig);
 const videoAgent = new VideoContentAgent(brandConfig);
+const imageAgent = new VisualContentAgent(brandConfig);
 const strategyAgent = new ContentStrategyAgent(brandConfig);
 const brandVoiceAgent = new BrandVoiceAgent(brandConfig);
 
@@ -236,6 +238,53 @@ app.post('/api/video/render', async (req, res) => {
     }
   } catch (error) {
     console.error('Error rendering video:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+});
+
+/**
+ * Generate actual image with Gemini from a prompt
+ */
+app.post('/api/image/render', async (req, res) => {
+  try {
+    const { prompt, aspectRatio, style } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    console.log(`Generating image with prompt: ${prompt.substring(0, 100)}...`);
+
+    // Create images directory if needed
+    const imagesDir = path.join(process.cwd(), 'data', 'assets', 'images');
+    const fs = await import('fs');
+    fs.mkdirSync(imagesDir, { recursive: true });
+
+    const result = await imageAgent.generateImage(prompt, {
+      aspectRatio: aspectRatio || '1:1',
+      style: style || 'photorealistic',
+      outputDirectory: imagesDir,
+    });
+
+    if (result.success && result.data) {
+      // Build URL for the image
+      const fileName = result.data.filePath ? path.basename(result.data.filePath) : null;
+      const imageUrl = fileName ? `/api/assets/images/${fileName}` : null;
+
+      res.json({
+        success: true,
+        image: {
+          url: imageUrl,
+          filePath: result.data.filePath,
+          mimeType: result.data.mimeType,
+          prompt: result.data.prompt,
+        },
+      });
+    } else {
+      res.status(500).json({ error: result.error || 'Failed to generate image' });
+    }
+  } catch (error) {
+    console.error('Error rendering image:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });

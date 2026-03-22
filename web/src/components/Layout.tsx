@@ -8,11 +8,13 @@ import {
   Mountain,
   Sparkles,
   Workflow,
+  Wand2,
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Content Workflow', href: '/workflow', icon: Workflow },
+  { name: 'Creative Studio', href: '/studio', icon: Wand2 },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
   { name: 'Calendar', href: '/calendar', icon: CalendarDays },
   { name: 'Brand Voice', href: '/brand', icon: Palette },

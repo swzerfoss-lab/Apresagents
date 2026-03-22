@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import ContentGenerator from './pages/ContentGenerator';
 import VideoStudio from './pages/VideoStudio';
+import Studio from './pages/Studio';
 import Campaigns from './pages/Campaigns';
 import Calendar from './pages/Calendar';
 import BrandVoice from './pages/BrandVoice';
@@ -15,6 +16,7 @@ function App() {
       <Route path="/" element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="workflow" element={<Workflow />} />
+        <Route path="studio" element={<Studio />} />
         <Route path="content" element={<ContentGenerator />} />
         <Route path="video" element={<VideoStudio />} />
         <Route path="campaigns" element={<Campaigns />} />
