@@ -51,11 +51,15 @@ export class WorkflowScheduler {
 
     // Check every minute if it's time to run
     this.intervalId = setInterval(() => {
-      this.checkAndRun();
+      this.checkAndRun().catch((error) => {
+        console.error('Scheduler check failed:', error);
+      });
     }, 60000); // Check every minute
 
     // Also check immediately on start
-    this.checkAndRun();
+    this.checkAndRun().catch((error) => {
+      console.error('Initial scheduler check failed:', error);
+    });
   }
 
   /**

@@ -16,6 +16,13 @@ import { WorkflowScheduler } from './services/WorkflowScheduler.js';
 import { ContentStorage } from './storage/ContentStorage.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
 import type { SocialPlatform, CampaignObjective } from './types/index.js';
+import { generalLimiter, generationLimiter, workflowLimiter } from './middleware/rateLimit.js';
+import {
+  validate,
+  WorkflowTriggerSchema,
+  ContentGenerateSchema,
+  ImageRenderSchema,
+} from './middleware/validation.js';
 
 // Get directory name for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -56,8 +63,13 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use('/api/', generalLimiter);
 
 // Serve static frontend files
 const webDistPath = path.join(__dirname, '..', 'web', 'dist');
@@ -103,13 +115,9 @@ app.get('/api/products', (_req, res) => {
 /**
  * Generate content for platforms
  */
-app.post('/api/content/generate', async (req, res) => {
+app.post('/api/content/generate', generationLimiter, validate(ContentGenerateSchema), async (req, res) => {
   try {
     const { topic, platforms, productId } = req.body;
-
-    if (!topic || !platforms || platforms.length === 0) {
-      return res.status(400).json({ error: 'Topic and platforms are required' });
-    }
 
     const product = productId
       ? sampleProducts.find((p) => p.id === productId)
@@ -192,7 +200,7 @@ app.post('/api/video/generate', async (req, res) => {
  * Generate actual video with Veo 3 from a prompt
  * Video generation can take several minutes, so we set a long timeout
  */
-app.post('/api/video/render', async (req, res) => {
+app.post('/api/video/render', generationLimiter, async (req, res) => {
   // Set a 10-minute timeout for video generation
   req.setTimeout(600000);
   res.setTimeout(600000);
@@ -265,13 +273,9 @@ app.post('/api/video/render', async (req, res) => {
 /**
  * Generate actual image with Gemini from a prompt
  */
-app.post('/api/image/render', async (req, res) => {
+app.post('/api/image/render', generationLimiter, validate(ImageRenderSchema), async (req, res) => {
   try {
     const { prompt, aspectRatio, style } = req.body;
-
-    if (!prompt) {
-      return res.status(400).json({ error: 'Prompt is required' });
-    }
 
     console.log(`Generating image with prompt: ${prompt.substring(0, 100)}...`);
 
@@ -573,16 +577,18 @@ app.post('/api/workflow/scheduler/config', (req, res) => {
 /**
  * Trigger workflow manually
  */
-app.post('/api/workflow/trigger', async (req, res) => {
+app.post('/api/workflow/trigger', workflowLimiter, validate(WorkflowTriggerSchema), async (req, res) => {
   try {
     const { platforms, postsPerPlatform, skipVideoGeneration, skipImageGeneration } = req.body;
 
-    // Run workflow in background
+    // Run workflow in background with proper error handling
     workflowScheduler.triggerWorkflow('manual', {
       platforms: platforms as SocialPlatform[],
       postsPerPlatform,
       skipVideoGeneration,
       skipImageGeneration,
+    }).catch((error) => {
+      console.error('Background workflow failed:', error);
     });
 
     res.json({
