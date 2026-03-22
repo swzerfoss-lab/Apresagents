@@ -20,6 +20,8 @@ import {
   ArrowRight,
   RotateCcw,
 } from 'lucide-react';
+import StageCountdown from '../components/StageCountdown';
+import AssetCountdown from '../components/AssetCountdown';
 
 interface SchedulerStatus {
   isRunning: boolean;
@@ -598,11 +600,12 @@ export default function Workflow() {
                           {stage.id === 'strategy' && (
                             <div>
                               {(status === 'current' || status === 'awaiting') && !workflowDetail.strategy && (
-                                <div className="flex flex-col items-center justify-center py-12">
-                                  <Loader className="w-12 h-12 animate-spin text-alpine-600 mb-4" />
-                                  <p className="text-gray-600 font-medium">Generating Content Calendar...</p>
-                                  <p className="text-sm text-gray-400 mt-1">This may take a minute</p>
-                                </div>
+                                <StageCountdown
+                                  stageId="strategy"
+                                  isActive={true}
+                                  title="Generating Content Calendar..."
+                                  subtitle="Planning weekly topics and schedule"
+                                />
                               )}
                               {workflowDetail.strategy && (
                                 <>
@@ -686,11 +689,12 @@ export default function Workflow() {
                           {stage.id === 'copywriting' && (
                             <>
                               {(status === 'current' || status === 'awaiting') && workflowDetail.posts.length === 0 && (
-                                <div className="flex flex-col items-center justify-center py-12">
-                                  <Loader className="w-12 h-12 animate-spin text-alpine-600 mb-4" />
-                                  <p className="text-gray-600 font-medium">Writing Copy & Prompts...</p>
-                                  <p className="text-sm text-gray-400 mt-1">Creating captions for each post</p>
-                                </div>
+                                <StageCountdown
+                                  stageId="copywriting"
+                                  isActive={true}
+                                  title="Writing Copy & Prompts..."
+                                  subtitle="Creating captions for each post"
+                                />
                               )}
                               {workflowDetail.posts.length > 0 && (
                             <div className="space-y-4">
@@ -790,11 +794,12 @@ export default function Workflow() {
                           {stage.id === 'image-generation' && (
                             <>
                               {(status === 'current' || status === 'awaiting') && workflowDetail.posts.every(p => p.images.every(i => i.status === 'pending')) && (
-                                <div className="flex flex-col items-center justify-center py-12">
-                                  <Loader className="w-12 h-12 animate-spin text-purple-600 mb-4" />
-                                  <p className="text-gray-600 font-medium">Generating Images...</p>
-                                  <p className="text-sm text-gray-400 mt-1">Creating visuals from prompts</p>
-                                </div>
+                                <StageCountdown
+                                  stageId="image-generation"
+                                  isActive={true}
+                                  title="Generating Images..."
+                                  subtitle="Creating visuals from prompts"
+                                />
                               )}
                               {workflowDetail.posts.some(p => p.images.length > 0) && (
                                 <div className="space-y-6">
@@ -823,10 +828,7 @@ export default function Workflow() {
                                                 ) : (
                                                   <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200">
                                                     {image.status === 'generating' ? (
-                                                      <div className="text-center">
-                                                        <Loader className="w-10 h-10 animate-spin text-purple-500 mx-auto mb-2" />
-                                                        <p className="text-sm text-gray-500">Generating...</p>
-                                                      </div>
+                                                      <AssetCountdown type="image" isGenerating={true} />
                                                     ) : image.status === 'failed' ? (
                                                       <div className="text-center">
                                                         <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-2" />
@@ -892,11 +894,12 @@ export default function Workflow() {
                           {stage.id === 'video-generation' && (
                             <>
                               {(status === 'current' || status === 'awaiting') && workflowDetail.posts.every(p => p.videos.every(v => v.status === 'pending')) && (
-                                <div className="flex flex-col items-center justify-center py-12">
-                                  <Loader className="w-12 h-12 animate-spin text-pink-600 mb-4" />
-                                  <p className="text-gray-600 font-medium">Generating Videos...</p>
-                                  <p className="text-sm text-gray-400 mt-1">Creating videos with Veo 3</p>
-                                </div>
+                                <StageCountdown
+                                  stageId="video-generation"
+                                  isActive={true}
+                                  title="Generating Videos..."
+                                  subtitle="Creating videos with Veo 3 (may take several minutes)"
+                                />
                               )}
                               {workflowDetail.posts.some(p => p.videos.length > 0) && (
                                 <div className="space-y-6">
@@ -929,11 +932,7 @@ export default function Workflow() {
                                                 ) : (
                                                   <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center border border-gray-200">
                                                     {video.status === 'generating' ? (
-                                                      <div className="text-center">
-                                                        <Loader className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-3" />
-                                                        <p className="text-sm text-gray-300">Generating video...</p>
-                                                        <p className="text-xs text-gray-500 mt-1">This may take a few minutes</p>
-                                                      </div>
+                                                      <AssetCountdown type="video" isGenerating={true} />
                                                     ) : video.status === 'failed' ? (
                                                       <div className="text-center">
                                                         <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />

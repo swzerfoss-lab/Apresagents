@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Image,
   Video,
@@ -9,7 +9,9 @@ import {
   AlertCircle,
   CheckCircle,
   Sparkles,
+  Clock,
 } from 'lucide-react';
+import { useCountdown, getEstimatedTime } from '../hooks/useCountdown';
 
 interface GeneratedImage {
   url: string;
@@ -53,11 +55,29 @@ export default function Studio() {
   const [imageHistory, setImageHistory] = useState<GeneratedImage[]>([]);
   const [videoHistory, setVideoHistory] = useState<GeneratedVideo[]>([]);
 
+  // Countdown timers
+  const imageCountdown = useCountdown(getEstimatedTime('image'));
+  const videoCountdown = useCountdown(getEstimatedTime('video'));
+
+  // Stop countdowns when generation completes
+  useEffect(() => {
+    if (!generatingImage) {
+      imageCountdown.stop();
+    }
+  }, [generatingImage]);
+
+  useEffect(() => {
+    if (!generatingVideo) {
+      videoCountdown.stop();
+    }
+  }, [generatingVideo]);
+
   const generateImage = async () => {
     if (!imagePrompt.trim()) return;
 
     setGeneratingImage(true);
     setImageError(null);
+    imageCountdown.start();
 
     try {
       const response = await fetch('/api/image/render', {
@@ -90,6 +110,7 @@ export default function Studio() {
 
     setGeneratingVideo(true);
     setVideoError(null);
+    videoCountdown.start();
 
     try {
       const response = await fetch('/api/video/render', {
@@ -236,6 +257,25 @@ export default function Studio() {
                   )}
                 </button>
 
+                {/* Progress indicator with countdown */}
+                {generatingImage && (
+                  <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2 text-purple-700">
+                        <Clock className="w-4 h-4" />
+                        <span className="text-sm font-medium">{imageCountdown.formattedTime}</span>
+                      </div>
+                      <span className="text-sm text-purple-600">{Math.round(imageCountdown.progress)}%</span>
+                    </div>
+                    <div className="w-full bg-purple-200 rounded-full h-2">
+                      <div
+                        className="bg-purple-600 h-2 rounded-full transition-all duration-1000"
+                        style={{ width: `${imageCountdown.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Error */}
                 {imageError && (
                   <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
@@ -248,7 +288,7 @@ export default function Studio() {
                 )}
 
                 {/* Result */}
-                {generatedImage && (
+                {generatedImage && !generatingImage && (
                   <div className="mt-6">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-medium text-gray-900 flex items-center gap-2">
@@ -363,7 +403,7 @@ export default function Studio() {
                   {generatingVideo ? (
                     <>
                       <Loader className="w-5 h-5 animate-spin" />
-                      Generating Video... (this may take a few minutes)
+                      Generating Video...
                     </>
                   ) : (
                     <>
@@ -372,6 +412,26 @@ export default function Studio() {
                     </>
                   )}
                 </button>
+
+                {/* Progress indicator with countdown */}
+                {generatingVideo && (
+                  <div className="mt-4 p-4 bg-pink-50 border border-pink-200 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2 text-pink-700">
+                        <Clock className="w-4 h-4" />
+                        <span className="text-sm font-medium">{videoCountdown.formattedTime}</span>
+                      </div>
+                      <span className="text-sm text-pink-600">{Math.round(videoCountdown.progress)}%</span>
+                    </div>
+                    <div className="w-full bg-pink-200 rounded-full h-2">
+                      <div
+                        className="bg-pink-600 h-2 rounded-full transition-all duration-1000"
+                        style={{ width: `${videoCountdown.progress}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-pink-600">Video generation with Veo 3 typically takes 2-5 minutes</p>
+                  </div>
+                )}
 
                 {/* Error */}
                 {videoError && (
@@ -385,7 +445,7 @@ export default function Studio() {
                 )}
 
                 {/* Result */}
-                {generatedVideo && (
+                {generatedVideo && !generatingVideo && (
                   <div className="mt-6">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-medium text-gray-900 flex items-center gap-2">
