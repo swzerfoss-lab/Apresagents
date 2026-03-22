@@ -198,7 +198,17 @@ app.post('/api/video/render', async (req, res) => {
   res.setTimeout(600000);
 
   try {
-    const { prompt, duration, aspectRatio, style } = req.body;
+    const {
+      prompt,
+      duration,
+      aspectRatio,
+      style,
+      resolution,
+      withAudio,
+      negativePrompt,
+      seed,
+      useFastModel,
+    } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
@@ -219,6 +229,11 @@ app.post('/api/video/render', async (req, res) => {
       duration: duration || 8,
       aspectRatio: aspectRatio || '16:9',
       style: style || 'cinematic',
+      resolution: resolution || '1080p',
+      withAudio: withAudio !== false, // Audio enabled by default
+      negativePrompt,
+      seed,
+      useFastModel: useFastModel || false,
       outputDirectory: videosDir,
     });
 

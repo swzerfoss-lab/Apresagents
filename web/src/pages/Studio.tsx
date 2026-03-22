@@ -44,9 +44,11 @@ export default function Studio() {
 
   // Video state
   const [videoPrompt, setVideoPrompt] = useState('');
-  const [videoDuration, setVideoDuration] = useState(8);
+  const [videoDuration, setVideoDuration] = useState<4 | 6 | 8>(8);
   const [videoAspectRatio, setVideoAspectRatio] = useState('16:9');
   const [videoStyle, setVideoStyle] = useState('cinematic');
+  const [videoResolution, setVideoResolution] = useState('1080p');
+  const [videoWithAudio, setVideoWithAudio] = useState(true);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<GeneratedVideo | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -121,6 +123,8 @@ export default function Studio() {
           duration: videoDuration,
           aspectRatio: videoAspectRatio,
           style: videoStyle,
+          resolution: videoResolution,
+          withAudio: videoWithAudio,
         }),
       });
 
@@ -347,7 +351,7 @@ export default function Studio() {
                   />
                 </div>
 
-                {/* Options */}
+                {/* Options Row 1 */}
                 <div className="grid grid-cols-3 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -355,10 +359,11 @@ export default function Studio() {
                     </label>
                     <select
                       value={videoDuration}
-                      onChange={(e) => setVideoDuration(Number(e.target.value))}
+                      onChange={(e) => setVideoDuration(Number(e.target.value) as 4 | 6 | 8)}
                       className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-300"
                     >
-                      <option value={5}>5 seconds</option>
+                      <option value={4}>4 seconds</option>
+                      <option value={6}>6 seconds</option>
                       <option value={8}>8 seconds</option>
                     </select>
                   </div>
@@ -378,6 +383,24 @@ export default function Studio() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Resolution
+                    </label>
+                    <select
+                      value={videoResolution}
+                      onChange={(e) => setVideoResolution(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-300"
+                    >
+                      <option value="720p">720p (Fast)</option>
+                      <option value="1080p">1080p (HD)</option>
+                      <option value="4k">4K (Ultra HD)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Options Row 2 */}
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Style
                     </label>
                     <select
@@ -391,6 +414,19 @@ export default function Studio() {
                       <option value="lifestyle">Lifestyle</option>
                       <option value="commercial">Commercial</option>
                     </select>
+                  </div>
+                  <div className="col-span-2 flex items-end pb-1">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={videoWithAudio}
+                        onChange={(e) => setVideoWithAudio(e.target.checked)}
+                        className="w-5 h-5 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
+                      />
+                      <span className="text-sm text-gray-700">
+                        Generate with audio (dialogue, SFX, ambient sounds)
+                      </span>
+                    </label>
                   </div>
                 </div>
 

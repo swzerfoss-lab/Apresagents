@@ -507,7 +507,7 @@ program
 
           const videoResult = await videoAgent.generateVideo(result.data.veoPrompt, {
             aspectRatio: platform === 'facebook' ? '16:9' : '9:16',
-            duration: duration === '15s' ? 5 : 8,
+            duration: duration === '15s' ? 4 : 8,
             style,
             outputDirectory: options.output,
             withAudio: true,

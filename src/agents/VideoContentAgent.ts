@@ -24,16 +24,29 @@ export interface GeneratedVideo {
 }
 
 /**
- * Video generation options for Veo 3
+ * Video generation options for Veo 3/3.1
  */
 export interface VideoGenerationOptions {
-  duration?: 5 | 8;
-  resolution?: '720p' | '1080p';
+  /** Video duration in seconds (4, 6, or 8) */
+  duration?: 4 | 6 | 8;
+  /** Output resolution - Veo 3.1 supports up to 4K */
+  resolution?: '720p' | '1080p' | '4k';
+  /** Aspect ratio for the video */
   aspectRatio?: '16:9' | '9:16' | '1:1';
+  /** Enable native audio generation (dialogue, SFX, ambient) */
   withAudio?: boolean;
+  /** Directory to save generated video */
   outputDirectory?: string;
+  /** Visual style preset */
   style?: 'cinematic' | 'documentary' | 'dynamic' | 'lifestyle' | 'commercial';
+  /** Use faster generation model (lower quality) */
   useFastModel?: boolean;
+  /** Negative prompt - content to avoid generating */
+  negativePrompt?: string;
+  /** Seed for reproducible results */
+  seed?: number;
+  /** Person/face generation safety setting */
+  personGeneration?: 'dont_allow' | 'allow_adult' | 'allow_all';
 }
 
 /**
@@ -170,14 +183,48 @@ Always create prompts that will generate cinematic, on-brand video content captu
 
       console.log(`Starting video generation with model: ${modelName}`);
 
+      // Build config with all Veo 3.1 parameters
+      const videoConfig: Record<string, unknown> = {
+        durationSeconds: options.duration || 8,
+        numberOfVideos: 1,
+        includeAudio: options.withAudio !== false, // Audio enabled by default
+      };
+
+      // Add aspect ratio if specified
+      if (options.aspectRatio) {
+        videoConfig.aspectRatio = options.aspectRatio;
+      }
+
+      // Add resolution for Veo 3.1 (maps to API format)
+      if (options.resolution) {
+        const resolutionMap: Record<string, string> = {
+          '720p': '720p',
+          '1080p': '1080p',
+          '4k': '4k',
+        };
+        videoConfig.resolution = resolutionMap[options.resolution];
+      }
+
+      // Add negative prompt if specified
+      if (options.negativePrompt) {
+        videoConfig.negativePrompt = options.negativePrompt;
+      }
+
+      // Add seed for reproducible results
+      if (options.seed !== undefined) {
+        videoConfig.seed = options.seed;
+      }
+
+      // Add person generation safety setting
+      if (options.personGeneration) {
+        videoConfig.personGeneration = options.personGeneration;
+      }
+
       // Generate video using Veo 3 - returns a long-running operation
       let operation = await this.genAI.models.generateVideos({
         model: modelName,
         prompt: enhancedPrompt,
-        config: {
-          durationSeconds: options.duration || 8,
-          numberOfVideos: 1,
-        },
+        config: videoConfig,
       });
 
       // Poll for the operation to complete
@@ -218,7 +265,7 @@ Always create prompts that will generate cinematic, on-brand video content captu
         mimeType: generatedVideoResult.video?.mimeType || 'video/mp4',
         prompt: enhancedPrompt,
         duration: options.duration || 8,
-        resolution: options.resolution || '720p',
+        resolution: options.resolution || '1080p',
         hasAudio: options.withAudio !== false,
       };
 
