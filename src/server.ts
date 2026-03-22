@@ -187,6 +187,60 @@ app.post('/api/video/generate', async (req, res) => {
 });
 
 /**
+ * Generate actual video with Veo 3 from a prompt
+ */
+app.post('/api/video/render', async (req, res) => {
+  try {
+    const { prompt, duration, aspectRatio, style } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    if (!videoAgent.isVideoGenerationAvailable()) {
+      return res.status(503).json({ error: 'Video generation not available. Check GOOGLE_API_KEY.' });
+    }
+
+    console.log(`Generating video with prompt: ${prompt.substring(0, 100)}...`);
+
+    // Create videos directory if needed
+    const videosDir = path.join(process.cwd(), 'data', 'assets', 'videos');
+    const fs = await import('fs');
+    fs.mkdirSync(videosDir, { recursive: true });
+
+    const result = await videoAgent.generateVideo(prompt, {
+      duration: duration || 8,
+      aspectRatio: aspectRatio || '16:9',
+      style: style || 'cinematic',
+      outputDirectory: videosDir,
+    });
+
+    if (result.success && result.data) {
+      // Build URL for the video
+      const fileName = result.data.filePath ? path.basename(result.data.filePath) : null;
+      const videoUrl = fileName ? `/api/assets/videos/${fileName}` : result.data.videoUrl;
+
+      res.json({
+        success: true,
+        video: {
+          url: videoUrl,
+          filePath: result.data.filePath,
+          duration: result.data.duration,
+          resolution: result.data.resolution,
+          hasAudio: result.data.hasAudio,
+          prompt: result.data.prompt,
+        },
+      });
+    } else {
+      res.status(500).json({ error: result.error || 'Failed to generate video' });
+    }
+  } catch (error) {
+    console.error('Error rendering video:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+});
+
+/**
  * Generate video campaign
  */
 app.post('/api/video/campaign', async (req, res) => {
