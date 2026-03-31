@@ -148,10 +148,24 @@ Always create prompts that will generate cinematic, on-brand video content captu
 
   /**
    * Initialize the Gemini client for video generation
+   * Supports both API key mode (for Imagen) and Vertex AI mode (for Veo)
    */
   private initializeGemini(): void {
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT;
+    const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (apiKey) {
+
+    // Prefer Vertex AI mode for Veo video generation
+    if (projectId) {
+      console.log(`Initializing Google GenAI with Vertex AI (project: ${projectId}, location: ${location})`);
+      this.genAI = new GoogleGenAI({
+        vertexai: true,
+        project: projectId,
+        location: location,
+      });
+    } else if (apiKey) {
+      // Fallback to API key mode (limited Veo access)
+      console.log('Initializing Google GenAI with API key (Vertex AI recommended for Veo)');
       this.genAI = new GoogleGenAI({ apiKey });
     }
   }
@@ -173,7 +187,7 @@ Always create prompts that will generate cinematic, on-brand video content captu
     if (!this.genAI) {
       return {
         success: false,
-        error: 'Gemini API key not configured. Set GEMINI_API_KEY in your environment.',
+        error: 'Google AI not configured. Set GOOGLE_CLOUD_PROJECT for Vertex AI (recommended for Veo), or GEMINI_API_KEY for API key mode.',
       };
     }
 
