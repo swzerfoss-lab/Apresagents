@@ -9,6 +9,10 @@ dist/
 .env.local
 .env.*.local
 
+# GCP credentials (never commit these!)
+gcp-key.json
+*-credentials.json
+
 # IDE
 .vscode/
 .idea/
