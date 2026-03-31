@@ -84,8 +84,8 @@ export interface VideoScene {
  */
 export class VideoContentAgent extends BaseAgent {
   private genAI: GoogleGenAI | null = null;
-  private videoModelName: string = 'veo-2.0-generate-001';
-  private fastVideoModelName: string = 'veo-2.0-generate-001'; // Veo 2 for broader availability
+  private videoModelName: string = 'veo-3.0-generate-001';
+  private fastVideoModelName: string = 'veo-3.0-fast-generate-001';
 
   constructor(brandConfig: BrandConfig) {
     super(
@@ -151,25 +151,26 @@ Always create prompts that will generate cinematic, on-brand video content captu
    * Supports both API key mode (for Imagen) and Vertex AI mode (for Veo)
    */
   private initializeGemini(): void {
-    const useVertexAI = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';
     const projectId = process.env.GOOGLE_CLOUD_PROJECT;
     const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     const credentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-    console.log('[VideoAgent] Config:', { useVertexAI, projectId, location, hasApiKey: !!apiKey, credentials });
+    console.log('[VideoAgent] Config:', { projectId, location, hasApiKey: !!apiKey, credentials });
 
-    // Prefer Vertex AI mode for Veo video generation
-    if (useVertexAI && projectId) {
+    // Use Vertex AI mode for Veo video generation (requires GCP project + service account)
+    // Vertex AI must be used for Veo - the Gemini API (v1beta) doesn't support video generation
+    if (projectId && credentials) {
       console.log(`[VideoAgent] Initializing with Vertex AI (project: ${projectId}, location: ${location})`);
+      // Don't pass apiKey when using Vertex AI - it can cause the SDK to use wrong endpoint
       this.genAI = new GoogleGenAI({
         vertexai: true,
         project: projectId,
         location: location,
       });
     } else if (apiKey) {
-      // Fallback to API key mode (limited Veo access)
-      console.log('[VideoAgent] Initializing with API key (Vertex AI recommended for Veo)');
+      // API key mode - limited, may not support Veo
+      console.log('[VideoAgent] Initializing with API key (WARNING: Veo may not work without Vertex AI)');
       this.genAI = new GoogleGenAI({ apiKey });
     } else {
       console.log('[VideoAgent] No credentials found - video generation unavailable');
