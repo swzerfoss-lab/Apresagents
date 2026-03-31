@@ -84,8 +84,8 @@ export interface VideoScene {
  */
 export class VideoContentAgent extends BaseAgent {
   private genAI: GoogleGenAI | null = null;
-  private videoModelName: string = 'veo-3.1-generate-001';
-  private fastVideoModelName: string = 'veo-3.1-fast-generate-001';
+  private videoModelName: string = 'veo-2.0-generate-001';
+  private fastVideoModelName: string = 'veo-2.0-generate-001'; // Veo 2 for broader availability
 
   constructor(brandConfig: BrandConfig) {
     super(
@@ -151,13 +151,17 @@ Always create prompts that will generate cinematic, on-brand video content captu
    * Supports both API key mode (for Imagen) and Vertex AI mode (for Veo)
    */
   private initializeGemini(): void {
+    const useVertexAI = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';
     const projectId = process.env.GOOGLE_CLOUD_PROJECT;
     const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const credentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+    console.log('[VideoAgent] Config:', { useVertexAI, projectId, location, hasApiKey: !!apiKey, credentials });
 
     // Prefer Vertex AI mode for Veo video generation
-    if (projectId) {
-      console.log(`Initializing Google GenAI with Vertex AI (project: ${projectId}, location: ${location})`);
+    if (useVertexAI && projectId) {
+      console.log(`[VideoAgent] Initializing with Vertex AI (project: ${projectId}, location: ${location})`);
       this.genAI = new GoogleGenAI({
         vertexai: true,
         project: projectId,
@@ -165,8 +169,10 @@ Always create prompts that will generate cinematic, on-brand video content captu
       });
     } else if (apiKey) {
       // Fallback to API key mode (limited Veo access)
-      console.log('Initializing Google GenAI with API key (Vertex AI recommended for Veo)');
+      console.log('[VideoAgent] Initializing with API key (Vertex AI recommended for Veo)');
       this.genAI = new GoogleGenAI({ apiKey });
+    } else {
+      console.log('[VideoAgent] No credentials found - video generation unavailable');
     }
   }
 
