@@ -378,6 +378,7 @@ program
   .option('-d, --duration <duration>', 'Video duration (15s, 30s, 60s)', '30s')
   .option('-o, --output <directory>', 'Output directory for generated videos')
   .option('--generate', 'Actually generate the video (requires Gemini API key)')
+  .option('--fast', 'Use fast model (quicker but lower quality)')
   .option('-i, --interactive', 'Interactive mode')
   .action(async (options) => {
     let topic = options.topic;
@@ -511,6 +512,7 @@ program
             style,
             outputDirectory: options.output,
             withAudio: true,
+            useFastModel: options.fast,
           });
 
           if (videoResult.success && videoResult.data) {
