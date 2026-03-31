@@ -84,8 +84,8 @@ export interface VideoScene {
  */
 export class VideoContentAgent extends BaseAgent {
   private genAI: GoogleGenAI | null = null;
-  private videoModelName: string = 'veo-3.1-generate-preview';
-  private fastVideoModelName: string = 'veo-3.1-fast-generate-preview';
+  private videoModelName: string = 'veo-3.1-generate-001';
+  private fastVideoModelName: string = 'veo-3.1-fast-generate-001';
 
   constructor(brandConfig: BrandConfig) {
     super(
@@ -245,7 +245,7 @@ Always create prompts that will generate cinematic, on-brand video content captu
       // Poll for the operation to complete
       let attempts = 0;
       let consecutiveErrors = 0;
-      const maxAttempts = 120; // Wait up to 10 minutes (120 * 5s = 600s)
+      const maxAttempts = 180; // Wait up to 15 minutes (180 * 5s = 900s)
       const maxConsecutiveErrors = 5; // Fail after 5 consecutive poll errors
       const pollInterval = 5000; // 5 seconds
 
