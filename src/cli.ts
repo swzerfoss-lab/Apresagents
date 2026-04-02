@@ -5,11 +5,13 @@ import chalk from 'chalk';
 import ora from 'ora';
 import inquirer from 'inquirer';
 import { SocialMediaManagerAgent, VideoContentAgent } from './agents/index.js';
+import { VideoEditorAgent } from './agents/VideoEditorAgent.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
 import type { SocialPlatform, CampaignObjective } from './types/index.js';
 
-// Initialize video agent
+// Initialize agents
 const videoAgent = new VideoContentAgent(getBrandConfig());
+const editorAgent = new VideoEditorAgent(getBrandConfig());
 
 const program = new Command();
 
@@ -555,9 +557,32 @@ program
             }
 
             console.log(chalk.green(`\n✨ Generated ${generatedClips.length}/${result.data.clips.length} clips!`));
-            console.log(chalk.yellow('\nTo create final video, combine these clips in order:'));
-            generatedClips.forEach((path, i) => console.log(chalk.gray(`  ${i + 1}. ${path}`)));
-            console.log(chalk.gray('\nUse a video editor or ffmpeg to concatenate clips.'));
+
+            // Auto-combine clips if ffmpeg is available
+            if (generatedClips.length > 1 && editorAgent.isAvailable()) {
+              const combineSpinner = ora('Combining clips into final video...').start();
+              const finalPath = pathModule.join(outputDir, `final_${Date.now()}.mp4`);
+
+              const combineResult = await editorAgent.combineClips(generatedClips, finalPath);
+
+              if (combineResult.success && combineResult.data) {
+                combineSpinner.succeed('Final video created!');
+                console.log(chalk.green('\n🎬 Final Video Ready!'));
+                console.log(chalk.blue('Saved to:'), combineResult.data.outputPath);
+                console.log(chalk.gray('Duration:'), `${Math.round(combineResult.data.duration)}s`);
+                console.log(chalk.gray('Size:'), `${Math.round(combineResult.data.fileSize / 1024 / 1024 * 10) / 10}MB`);
+              } else {
+                combineSpinner.fail('Could not auto-combine clips');
+                console.log(chalk.yellow('\nClips saved separately:'));
+                generatedClips.forEach((clipPath, i) => console.log(chalk.gray(`  ${i + 1}. ${clipPath}`)));
+                console.log(chalk.gray('\nCombine manually with: ffmpeg or iMovie'));
+              }
+            } else if (generatedClips.length > 1) {
+              console.log(chalk.yellow('\nTo auto-combine clips, install ffmpeg:'));
+              console.log(chalk.gray('  brew install ffmpeg'));
+              console.log(chalk.yellow('\nClips saved separately:'));
+              generatedClips.forEach((clipPath, i) => console.log(chalk.gray(`  ${i + 1}. ${clipPath}`)));
+            }
 
           } else {
             // Single clip generation (legacy/fallback)
@@ -809,6 +834,55 @@ program
       console.log(chalk.gray(`  Key Ingredients: ${product.keyIngredients.join(', ')}`));
       console.log();
     });
+  });
+
+/**
+ * Video combine command - combines clips into final video
+ */
+program
+  .command('video-combine')
+  .description('Combine video clips into a final video using ffmpeg')
+  .option('-d, --directory <dir>', 'Directory containing clips', './videos')
+  .option('-o, --output <filename>', 'Output filename', 'final_video.mp4')
+  .option('-t, --transition <type>', 'Transition type (none, fade)', 'none')
+  .action(async (options) => {
+    if (!editorAgent.isAvailable()) {
+      console.log(chalk.red('ffmpeg is not installed.'));
+      console.log(chalk.yellow(editorAgent.getInstallInstructions()));
+      return;
+    }
+
+    const clips = editorAgent.findClipsInDirectory(options.directory);
+
+    if (clips.length === 0) {
+      console.log(chalk.red(`No clips found in ${options.directory}`));
+      console.log(chalk.gray('Clips should be named: clip_1_xxx.mp4, clip_2_xxx.mp4, etc.'));
+      return;
+    }
+
+    console.log(chalk.cyan(`Found ${clips.length} clips to combine:`));
+    const pathModule = await import('path');
+    clips.forEach((c, i) => console.log(chalk.gray(`  ${i + 1}. ${pathModule.basename(c)}`)));
+
+    const spinner = ora('Combining clips...').start();
+
+    const result = await editorAgent.combineClipsInDirectory(
+      options.directory,
+      options.output,
+      { type: options.transition as 'none' | 'fade' }
+    );
+
+    if (result.success && result.data) {
+      spinner.succeed('Video combined successfully!');
+      console.log(chalk.green('\n🎬 Final Video Ready!'));
+      console.log(chalk.blue('Saved to:'), result.data.outputPath);
+      console.log(chalk.gray('Duration:'), `${Math.round(result.data.duration)}s`);
+      console.log(chalk.gray('Clips combined:'), result.data.clipCount);
+      console.log(chalk.gray('File size:'), `${Math.round(result.data.fileSize / 1024 / 1024 * 10) / 10}MB`);
+    } else {
+      spinner.fail('Failed to combine clips');
+      console.log(chalk.red('Error:'), result.error);
+    }
   });
 
 program.parse();
