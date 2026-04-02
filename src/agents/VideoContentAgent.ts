@@ -162,13 +162,15 @@ Always create prompts that will generate cinematic, on-brand video content captu
     // Vertex AI must be used for Veo - the Gemini API (v1beta) doesn't support video generation
     if (projectId && credentialsPath) {
       console.log(`[VideoAgent] Initializing with Vertex AI (project: ${projectId}, location: ${location})`);
-      // Pass credentials path explicitly via googleAuthOptions
+
+      // Pass credentials via googleAuthOptions with keyFile and scopes
       this.genAI = new GoogleGenAI({
         vertexai: true,
         project: projectId,
         location: location,
         googleAuthOptions: {
           keyFile: credentialsPath,
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
         },
       });
     } else if (apiKey) {
