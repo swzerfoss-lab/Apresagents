@@ -524,6 +524,19 @@ program
             if (videoResult.data.filePath) {
               console.log(chalk.blue('Saved to:'), videoResult.data.filePath);
             }
+            if (videoResult.data.videoData) {
+              console.log(chalk.gray('Video data:'), `${Math.round(videoResult.data.videoData.length / 1024)}KB base64`);
+              // Save if we have data but no filePath yet
+              if (!videoResult.data.filePath && options.output) {
+                const fs = await import('fs');
+                const path = await import('path');
+                const fileName = `apresfeels_video_${Date.now()}.mp4`;
+                const filePath = path.join(options.output, fileName);
+                fs.mkdirSync(options.output, { recursive: true });
+                fs.writeFileSync(filePath, Buffer.from(videoResult.data.videoData, 'base64'));
+                console.log(chalk.blue('Saved to:'), filePath);
+              }
+            }
             console.log(chalk.gray('Duration:'), `${videoResult.data.duration}s`);
             console.log(chalk.gray('Has Audio:'), videoResult.data.hasAudio ? 'Yes' : 'No');
           } else {
