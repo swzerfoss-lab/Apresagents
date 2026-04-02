@@ -498,50 +498,105 @@ program
         console.log(chalk.yellow('\n--- CALL TO ACTION ---'));
         console.log(result.data.callToAction);
 
-        console.log(chalk.magenta('\n--- VEO 3 PROMPT ---'));
-        console.log(chalk.gray(result.data.veoPrompt));
+        // Display clips (new multi-clip format)
+        if (result.data.clips && result.data.clips.length > 0) {
+          console.log(chalk.magenta(`\n--- VIDEO CLIPS (${result.data.clips.length} clips for ${result.data.totalDuration || 30}s video) ---`));
+          result.data.clips.forEach((clip) => {
+            console.log(chalk.cyan(`\nClip ${clip.clipNumber} (${clip.duration}s):`));
+            console.log(chalk.white('Prompt:'), clip.veoPrompt);
+            console.log(chalk.gray('Description:'), clip.description);
+            if (clip.transition) console.log(chalk.gray('Transition:'), clip.transition);
+          });
+        } else {
+          // Legacy single prompt display
+          console.log(chalk.magenta('\n--- VEO 3 PROMPT ---'));
+          console.log(chalk.gray(result.data.veoPrompt));
+        }
 
         // Generate actual video if requested
         if (options.generate) {
-          console.log();
-          const videoSpinner = ora('Generating video with Veo 3 (this may take a moment)...').start();
+          const outputDir = options.output || './videos';
+          const fs = await import('fs');
+          const pathModule = await import('path');
+          fs.mkdirSync(outputDir, { recursive: true });
 
-          const videoResult = await videoAgent.generateVideo(result.data.veoPrompt, {
-            aspectRatio: platform === 'facebook' ? '16:9' : '9:16',
-            duration: duration === '15s' ? 4 : 8,
-            style,
-            outputDirectory: options.output,
-            withAudio: true,
-            useFastModel: options.fast,
-          });
+          // Multi-clip generation (new)
+          if (result.data.clips && result.data.clips.length > 1) {
+            console.log(chalk.yellow(`\n🎬 Generating ${result.data.clips.length} clips...`));
+            console.log(chalk.gray('Each clip takes 1-3 minutes. Total time: ~' + (result.data.clips.length * 2) + ' minutes\n'));
 
-          if (videoResult.success && videoResult.data) {
-            videoSpinner.succeed('Video generated successfully!');
-            console.log(chalk.green('\n✨ Video Generated!'));
-            if (videoResult.data.videoUrl) {
-              console.log(chalk.blue('Video URL:'), videoResult.data.videoUrl);
-            }
-            if (videoResult.data.filePath) {
-              console.log(chalk.blue('Saved to:'), videoResult.data.filePath);
-            }
-            if (videoResult.data.videoData) {
-              console.log(chalk.gray('Video data:'), `${Math.round(videoResult.data.videoData.length / 1024)}KB base64`);
-              // Save if we have data but no filePath yet
-              if (!videoResult.data.filePath && options.output) {
-                const fs = await import('fs');
-                const path = await import('path');
-                const fileName = `apresfeels_video_${Date.now()}.mp4`;
-                const filePath = path.join(options.output, fileName);
-                fs.mkdirSync(options.output, { recursive: true });
-                fs.writeFileSync(filePath, Buffer.from(videoResult.data.videoData, 'base64'));
-                console.log(chalk.blue('Saved to:'), filePath);
+            const generatedClips: string[] = [];
+
+            for (const clip of result.data.clips) {
+              const clipSpinner = ora(`Generating clip ${clip.clipNumber}/${result.data.clips.length}...`).start();
+
+              const videoResult = await videoAgent.generateVideo(clip.veoPrompt, {
+                aspectRatio: platform === 'facebook' ? '16:9' : '9:16',
+                duration: (clip.duration as 4 | 6 | 8) || 8,
+                style,
+                withAudio: true,
+                useFastModel: options.fast,
+              });
+
+              if (videoResult.success && videoResult.data) {
+                clipSpinner.succeed(`Clip ${clip.clipNumber} generated!`);
+
+                // Save clip
+                if (videoResult.data.videoData) {
+                  const fileName = `clip_${clip.clipNumber}_${Date.now()}.mp4`;
+                  const filePath = pathModule.join(outputDir, fileName);
+                  fs.writeFileSync(filePath, Buffer.from(videoResult.data.videoData, 'base64'));
+                  console.log(chalk.blue(`  Saved to: ${filePath}`));
+                  generatedClips.push(filePath);
+                }
+              } else {
+                clipSpinner.fail(`Clip ${clip.clipNumber} failed: ${videoResult.error}`);
               }
             }
-            console.log(chalk.gray('Duration:'), `${videoResult.data.duration}s`);
-            console.log(chalk.gray('Has Audio:'), videoResult.data.hasAudio ? 'Yes' : 'No');
+
+            console.log(chalk.green(`\n✨ Generated ${generatedClips.length}/${result.data.clips.length} clips!`));
+            console.log(chalk.yellow('\nTo create final video, combine these clips in order:'));
+            generatedClips.forEach((path, i) => console.log(chalk.gray(`  ${i + 1}. ${path}`)));
+            console.log(chalk.gray('\nUse a video editor or ffmpeg to concatenate clips.'));
+
           } else {
-            videoSpinner.fail('Video generation failed');
-            console.log(chalk.red('Error:'), videoResult.error);
+            // Single clip generation (legacy/fallback)
+            const videoSpinner = ora('Generating video with Veo 3 (this may take a moment)...').start();
+            const promptToUse = result.data.clips?.[0]?.veoPrompt || result.data.veoPrompt;
+
+            const videoResult = await videoAgent.generateVideo(promptToUse, {
+              aspectRatio: platform === 'facebook' ? '16:9' : '9:16',
+              duration: duration === '15s' ? 4 : 8,
+              style,
+              outputDirectory: outputDir,
+              withAudio: true,
+              useFastModel: options.fast,
+            });
+
+            if (videoResult.success && videoResult.data) {
+              videoSpinner.succeed('Video generated successfully!');
+              console.log(chalk.green('\n✨ Video Generated!'));
+              if (videoResult.data.videoUrl) {
+                console.log(chalk.blue('Video URL:'), videoResult.data.videoUrl);
+              }
+              if (videoResult.data.filePath) {
+                console.log(chalk.blue('Saved to:'), videoResult.data.filePath);
+              }
+              if (videoResult.data.videoData) {
+                console.log(chalk.gray('Video data:'), `${Math.round(videoResult.data.videoData.length / 1024)}KB base64`);
+                if (!videoResult.data.filePath) {
+                  const fileName = `apresfeels_video_${Date.now()}.mp4`;
+                  const filePath = pathModule.join(outputDir, fileName);
+                  fs.writeFileSync(filePath, Buffer.from(videoResult.data.videoData, 'base64'));
+                  console.log(chalk.blue('Saved to:'), filePath);
+                }
+              }
+              console.log(chalk.gray('Duration:'), `${videoResult.data.duration}s`);
+              console.log(chalk.gray('Has Audio:'), videoResult.data.hasAudio ? 'Yes' : 'No');
+            } else {
+              videoSpinner.fail('Video generation failed');
+              console.log(chalk.red('Error:'), videoResult.error);
+            }
           }
         }
       } else {

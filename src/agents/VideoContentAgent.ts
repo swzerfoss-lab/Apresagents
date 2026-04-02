@@ -51,7 +51,18 @@ export interface VideoGenerationOptions {
 }
 
 /**
- * Video concept for content planning
+ * Individual clip for multi-clip video production
+ */
+export interface VideoClip {
+  clipNumber: number;
+  duration: number; // seconds (4, 6, or 8)
+  veoPrompt: string; // Focused 1-2 sentence prompt for this clip
+  description: string; // What this clip shows
+  transition?: string; // How to transition to next clip
+}
+
+/**
+ * Video concept for content planning - now with multi-clip support
  */
 export interface VideoConcept {
   title: string;
@@ -63,7 +74,9 @@ export interface VideoConcept {
   callToAction: string;
   platform: SocialPlatform;
   duration: string;
-  veoPrompt: string;
+  veoPrompt: string; // Legacy single prompt
+  clips: VideoClip[]; // New: array of focused clip prompts
+  totalDuration: number; // Total video duration in seconds
 }
 
 /**
@@ -76,6 +89,19 @@ export interface VideoScene {
   action: string;
   text?: string;
   audio?: string;
+}
+
+/**
+ * Result of generating a full multi-clip video
+ */
+export interface MultiClipVideoResult {
+  concept: VideoConcept;
+  clips: Array<{
+    clipNumber: number;
+    video: GeneratedVideo;
+    filePath?: string;
+  }>;
+  outputDirectory?: string;
 }
 
 /**
@@ -370,7 +396,10 @@ Always create prompts that will generate cinematic, on-brand video content captu
   }
 
   /**
-   * Generate a complete video concept with Veo 3 prompt
+   * Generate a complete video concept with multiple Veo clip prompts
+   *
+   * IMPORTANT: Veo can only generate 4-8 second clips. For longer videos,
+   * we generate multiple focused clips that can be stitched together.
    */
   async generateVideoConcept(
     topic: string,
@@ -378,14 +407,18 @@ Always create prompts that will generate cinematic, on-brand video content captu
     duration: '15s' | '30s' | '60s' = '30s',
     product?: Product
   ): Promise<AgentResponse<VideoConcept>> {
-    const durationMap = { '15s': 5, '30s': 8, '60s': 8 };
-    const _videoDuration = durationMap[duration]; // Reserved for future use
+    // Calculate number of clips needed (each clip is 8 seconds max)
+    const durationSeconds = { '15s': 15, '30s': 30, '60s': 60 }[duration];
+    const numberOfClips = Math.ceil(durationSeconds / 8);
 
     const prompt = `Create a complete video concept for Apres Feels: "${topic}"
 
 Platform: ${platform}
-Target Duration: ${duration}
+Target Duration: ${duration} (${durationSeconds} seconds total)
+Number of clips to generate: ${numberOfClips} clips (each 6-8 seconds)
 ${product ? `Product to feature: ${product.name} - ${product.description}` : ''}
+
+IMPORTANT: Google Veo generates 8-second clips maximum. You must break this video into ${numberOfClips} separate clips.
 
 Remember: Apres Feels is a premium winter sports recovery brand. The video should capture:
 - Mountain adventure and ski culture (skiing, snowboarding, mountaineering)
@@ -393,32 +426,51 @@ Remember: Apres Feels is a premium winter sports recovery brand. The video shoul
 - The work hard/play hard lifestyle
 - Après-ski social scenes and celebrations
 
+## Veo Prompt Best Practices (FOLLOW THESE):
+- Each clip prompt should be 1-2 sentences ONLY
+- Focus on ONE scene/action per clip
+- Be specific about: camera angle, lighting, subject action
+- Include visual style keywords: cinematic, dramatic, golden hour, etc.
+- Avoid complex multi-scene descriptions
+- Good example: "Aerial tracking shot of a skier carving through fresh powder on a pristine alpine slope, golden morning light, snow crystals sparkling dramatically, cinematic quality"
+- Bad example: "Skier goes down mountain then cuts to lodge then shows product" (too many scenes)
+
 Output in JSON format:
 \`\`\`json
 {
   "title": "Brief concept title",
-  "hook": "Opening hook (first 2-3 seconds) - make it captivating and mountain-focused",
+  "hook": "Opening hook description",
   "narrative": "Overall story arc blending action and recovery",
   "scenes": [
     {
       "sceneNumber": 1,
-      "timestamp": "0:00-0:03",
-      "visual": "Detailed visual description with camera movement",
-      "action": "What's happening in the scene",
-      "text": "Any on-screen text overlay",
-      "audio": "Sound/music direction"
+      "timestamp": "0:00-0:08",
+      "visual": "Detailed visual description",
+      "action": "What's happening",
+      "text": "On-screen text if any",
+      "audio": "Sound direction"
     }
   ],
-  "visualStyle": "Overall visual style and color grading direction",
-  "audioDirection": "Music style, ambient sounds, voiceover direction for Veo 3's native audio",
-  "callToAction": "End CTA aligned with Apres Feels brand",
+  "visualStyle": "Overall visual style and color grading",
+  "audioDirection": "Music and sound direction",
+  "callToAction": "End CTA for Apres Feels",
   "platform": "${platform}",
   "duration": "${duration}",
-  "veoPrompt": "Complete, detailed Google Veo 3 prompt that will generate this video. Be extremely specific about: camera movements (tracking shots, aerials, close-ups), lighting (alpine golden hour, lodge warmth), action (ski/snowboard movements), transitions, and the premium luxury feel. This prompt should be 2-3 sentences that vividly describe the complete video."
+  "totalDuration": ${durationSeconds},
+  "clips": [
+    {
+      "clipNumber": 1,
+      "duration": 8,
+      "veoPrompt": "Focused 1-2 sentence Veo prompt for this specific clip. Be vivid and specific about ONE scene only.",
+      "description": "What this clip shows in the overall video",
+      "transition": "cut/fade/match cut to next clip"
+    }
+  ],
+  "veoPrompt": "Legacy single prompt (for backwards compatibility)"
 }
 \`\`\`
 
-Make the concept engaging, trend-aware, and capture the adventurous premium spirit of Apres Feels.`;
+Generate exactly ${numberOfClips} clips that together tell a cohesive story. Each clip should flow naturally to the next.`;
 
     const response = await this.singleQuery(prompt);
     if (!response.success) {
@@ -430,7 +482,91 @@ Make the concept engaging, trend-aware, and capture the adventurous premium spir
       return { success: false, error: 'Failed to parse video concept response' };
     }
 
+    // Ensure clips array exists
+    if (!concept.clips || concept.clips.length === 0) {
+      // Fallback: create clips from the single veoPrompt
+      concept.clips = [{
+        clipNumber: 1,
+        duration: 8,
+        veoPrompt: concept.veoPrompt,
+        description: concept.narrative,
+      }];
+    }
+
+    concept.totalDuration = durationSeconds;
+
     return { success: true, data: concept, usage: response.usage };
+  }
+
+  /**
+   * Generate a full multi-clip video from a concept
+   * Generates all clips and saves them to the output directory
+   */
+  async generateFullVideo(
+    concept: VideoConcept,
+    options: VideoGenerationOptions & { outputDirectory: string }
+  ): Promise<AgentResponse<MultiClipVideoResult>> {
+    if (!concept.clips || concept.clips.length === 0) {
+      return { success: false, error: 'No clips defined in video concept' };
+    }
+
+    const results: MultiClipVideoResult = {
+      concept,
+      clips: [],
+      outputDirectory: options.outputDirectory,
+    };
+
+    console.log(`\nGenerating ${concept.clips.length} clips for "${concept.title}"...`);
+
+    for (const clip of concept.clips) {
+      console.log(`\n--- Generating Clip ${clip.clipNumber}/${concept.clips.length} ---`);
+      console.log(`Prompt: ${clip.veoPrompt.substring(0, 100)}...`);
+
+      const clipResult = await this.generateVideo(clip.veoPrompt, {
+        ...options,
+        duration: (clip.duration as 4 | 6 | 8) || 8,
+      });
+
+      if (!clipResult.success || !clipResult.data) {
+        console.warn(`Failed to generate clip ${clip.clipNumber}: ${clipResult.error}`);
+        continue;
+      }
+
+      // Save clip to file
+      const fileName = `clip_${clip.clipNumber}_${Date.now()}.mp4`;
+      const filePath = path.join(options.outputDirectory, fileName);
+
+      try {
+        if (!fs.existsSync(options.outputDirectory)) {
+          fs.mkdirSync(options.outputDirectory, { recursive: true });
+        }
+
+        if (clipResult.data.videoData) {
+          const buffer = Buffer.from(clipResult.data.videoData, 'base64');
+          fs.writeFileSync(filePath, buffer);
+          clipResult.data.filePath = filePath;
+          console.log(`Saved clip ${clip.clipNumber} to: ${filePath}`);
+        }
+      } catch (err) {
+        console.warn(`Failed to save clip ${clip.clipNumber}:`, err);
+      }
+
+      results.clips.push({
+        clipNumber: clip.clipNumber,
+        video: clipResult.data,
+        filePath: clipResult.data.filePath,
+      });
+    }
+
+    if (results.clips.length === 0) {
+      return { success: false, error: 'Failed to generate any clips' };
+    }
+
+    console.log(`\n✅ Generated ${results.clips.length}/${concept.clips.length} clips`);
+    console.log(`Clips saved to: ${options.outputDirectory}`);
+    console.log(`\nTo create final video, combine clips in order using a video editor.`);
+
+    return { success: true, data: results };
   }
 
   /**
