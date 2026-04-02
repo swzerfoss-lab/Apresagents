@@ -154,19 +154,22 @@ Always create prompts that will generate cinematic, on-brand video content captu
     const projectId = process.env.GOOGLE_CLOUD_PROJECT;
     const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    const credentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-    console.log('[VideoAgent] Config:', { projectId, location, hasApiKey: !!apiKey, credentials });
+    console.log('[VideoAgent] Config:', { projectId, location, hasApiKey: !!apiKey, credentialsPath });
 
     // Use Vertex AI mode for Veo video generation (requires GCP project + service account)
     // Vertex AI must be used for Veo - the Gemini API (v1beta) doesn't support video generation
-    if (projectId && credentials) {
+    if (projectId && credentialsPath) {
       console.log(`[VideoAgent] Initializing with Vertex AI (project: ${projectId}, location: ${location})`);
-      // Don't pass apiKey when using Vertex AI - it can cause the SDK to use wrong endpoint
+      // Pass credentials path explicitly via googleAuthOptions
       this.genAI = new GoogleGenAI({
         vertexai: true,
         project: projectId,
         location: location,
+        googleAuthOptions: {
+          keyFile: credentialsPath,
+        },
       });
     } else if (apiKey) {
       // API key mode - limited, may not support Veo
