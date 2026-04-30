@@ -10,6 +10,8 @@ import path from 'path';
 import { WeeklyWorkflow, ReadyPost, GeneratedAsset } from '../types/index.js';
 
 export class ContentStorage {
+  private static workflowWriteQueues = new Map<string, Promise<void>>();
+
   private storageDir: string;
   private workflowsFile: string;
   private postsDir: string;
@@ -67,17 +69,19 @@ export class ContentStorage {
    * Save a workflow
    */
   async saveWorkflow(workflow: WeeklyWorkflow): Promise<void> {
-    await this.ensureInitialized();
-    const data = await this.loadWorkflowsData();
-    const existingIndex = data.workflows.findIndex((w: WeeklyWorkflow) => w.id === workflow.id);
+    await this.withWorkflowWriteLock(async () => {
+      await this.ensureInitialized();
+      const data = await this.loadWorkflowsData();
+      const existingIndex = data.workflows.findIndex((w: WeeklyWorkflow) => w.id === workflow.id);
 
-    if (existingIndex >= 0) {
-      data.workflows[existingIndex] = workflow;
-    } else {
-      data.workflows.push(workflow);
-    }
+      if (existingIndex >= 0) {
+        data.workflows[existingIndex] = workflow;
+      } else {
+        data.workflows.push(workflow);
+      }
 
-    await fs.writeFile(this.workflowsFile, JSON.stringify(data, null, 2));
+      await this.writeWorkflowsData(data);
+    });
 
     // Also save individual post files for quick access
     for (const post of workflow.posts) {
@@ -268,17 +272,19 @@ export class ContentStorage {
    * Delete old workflows (cleanup)
    */
   async deleteOldWorkflows(daysToKeep: number = 90): Promise<number> {
-    const data = await this.loadWorkflowsData();
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    return this.withWorkflowWriteLock(async () => {
+      const data = await this.loadWorkflowsData();
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
 
-    const originalCount = data.workflows.length;
-    data.workflows = data.workflows.filter(
-      (w: WeeklyWorkflow) => new Date(w.createdAt) > cutoffDate
-    );
+      const originalCount = data.workflows.length;
+      data.workflows = data.workflows.filter(
+        (w: WeeklyWorkflow) => new Date(w.createdAt) > cutoffDate
+      );
 
-    await fs.writeFile(this.workflowsFile, JSON.stringify(data, null, 2));
-    return originalCount - data.workflows.length;
+      await this.writeWorkflowsData(data);
+      return originalCount - data.workflows.length;
+    });
   }
 
   /**
@@ -326,10 +332,56 @@ export class ContentStorage {
     try {
       await this.ensureInitialized();
       const content = await fs.readFile(this.workflowsFile, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      return { workflows: [] };
+      const parsed = JSON.parse(content);
+
+      if (!parsed || !Array.isArray(parsed.workflows)) {
+        throw new Error(`Invalid workflows storage format in ${this.workflowsFile}`);
+      }
+
+      return parsed;
+    } catch (error) {
+      if (this.isFileNotFoundError(error)) {
+        return { workflows: [] };
+      }
+
+      throw error;
     }
+  }
+
+  private async writeWorkflowsData(data: { workflows: WeeklyWorkflow[] }): Promise<void> {
+    const tempFile = `${this.workflowsFile}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(tempFile, JSON.stringify(data, null, 2));
+    await fs.rename(tempFile, this.workflowsFile);
+  }
+
+  private async withWorkflowWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = ContentStorage.workflowWriteQueues.get(this.workflowsFile) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.catch(() => undefined).then(() => current);
+    ContentStorage.workflowWriteQueues.set(this.workflowsFile, queued);
+
+    await previous.catch(() => undefined);
+
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (ContentStorage.workflowWriteQueues.get(this.workflowsFile) === queued) {
+        ContentStorage.workflowWriteQueues.delete(this.workflowsFile);
+      }
+    }
+  }
+
+  private isFileNotFoundError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'ENOENT'
+    );
   }
 
   private deserializeWorkflow = (workflow: WeeklyWorkflow): WeeklyWorkflow => {
