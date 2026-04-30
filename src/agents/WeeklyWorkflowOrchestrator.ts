@@ -210,8 +210,11 @@ export class WeeklyWorkflowOrchestrator {
           console.log('✅ Images complete - awaiting approval\n');
         } else {
           // Skip to video or assembly
-          this.currentWorkflow.currentStage = options?.skipVideoGeneration ? 'assembly' : 'video-generation';
-          return this.approveStageAndContinue(workflowId, options);
+          if (options?.skipVideoGeneration) {
+            await this.runAssemblyStageAndPause();
+          } else {
+            await this.runVideoGenerationStageAndPause();
+          }
         }
 
       } else if (currentStage === 'image-generation') {
@@ -231,8 +234,7 @@ export class WeeklyWorkflowOrchestrator {
           console.log('✅ Videos complete - awaiting approval\n');
         } else {
           // Skip to assembly
-          this.currentWorkflow.currentStage = 'assembly';
-          return this.approveStageAndContinue(workflowId, options);
+          await this.runAssemblyStageAndPause();
         }
 
       } else if (currentStage === 'video-generation') {
@@ -279,6 +281,32 @@ export class WeeklyWorkflowOrchestrator {
       await this.storage.saveWorkflow(this.currentWorkflow);
       throw error;
     }
+  }
+
+  private async runVideoGenerationStageAndPause(): Promise<void> {
+    console.log('🎬 Stage 4: Generating Videos...');
+    this.currentWorkflow!.currentStage = 'video-generation';
+    this.currentWorkflow!.status = 'running';
+    await this.storage.saveWorkflow(this.currentWorkflow!);
+
+    await this.executeVideoGenerationStage();
+    this.currentWorkflow!.status = 'awaiting-approval';
+    this.currentWorkflow!.awaitingApproval = true;
+    await this.storage.saveWorkflow(this.currentWorkflow!);
+    console.log('✅ Videos complete - awaiting approval\n');
+  }
+
+  private async runAssemblyStageAndPause(): Promise<void> {
+    console.log('📦 Stage 5: Assembling Ready Posts...');
+    this.currentWorkflow!.currentStage = 'assembly';
+    this.currentWorkflow!.status = 'running';
+    await this.storage.saveWorkflow(this.currentWorkflow!);
+
+    await this.executeAssemblyStage();
+    this.currentWorkflow!.status = 'awaiting-approval';
+    this.currentWorkflow!.awaitingApproval = true;
+    await this.storage.saveWorkflow(this.currentWorkflow!);
+    console.log('✅ Assembly complete - awaiting final approval\n');
   }
 
   /**
