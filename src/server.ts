@@ -72,11 +72,6 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use('/api/', generalLimiter);
 
-// Serve generated assets (images and videos)
-const assetsDir = path.join(process.cwd(), 'data', 'assets');
-app.use('/api/assets/images', express.static(path.join(assetsDir, 'images')));
-app.use('/api/assets/videos', express.static(path.join(assetsDir, 'videos')));
-
 // Health check with deep checks
 app.get('/api/health', async (_req, res) => {
   const checks: Record<string, { status: 'ok' | 'error' | 'degraded'; message?: string }> = {};
@@ -142,6 +137,11 @@ app.get('/api/products', (_req, res) => {
 
 // All remaining app and API routes can mutate workflows or spend model quota.
 app.use(requireAdminAuth);
+
+// Serve generated assets after auth; they can contain unpublished campaign content.
+const assetsDir = path.join(process.cwd(), 'data', 'assets');
+app.use('/api/assets/images', express.static(path.join(assetsDir, 'images')));
+app.use('/api/assets/videos', express.static(path.join(assetsDir, 'videos')));
 
 // Serve static frontend files after auth so deployed portals are not public.
 const webDistPath = path.join(__dirname, '..', 'web', 'dist');
