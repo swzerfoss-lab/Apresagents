@@ -17,6 +17,7 @@ import { ContentStorage } from './storage/ContentStorage.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
 import type { SocialPlatform, CampaignObjective } from './types/index.js';
 import { generalLimiter, generationLimiter, workflowLimiter } from './middleware/rateLimit.js';
+import { requireAdminAuth } from './middleware/auth.js';
 import {
   validate,
   WorkflowTriggerSchema,
@@ -66,14 +67,10 @@ const HOST = '0.0.0.0';
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Token'],
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use('/api/', generalLimiter);
-
-// Serve static frontend files
-const webDistPath = path.join(__dirname, '..', 'web', 'dist');
-app.use(express.static(webDistPath));
 
 // Serve generated assets (images and videos)
 const assetsDir = path.join(process.cwd(), 'data', 'assets');
@@ -142,6 +139,13 @@ app.get('/api/brand', (_req, res) => {
 app.get('/api/products', (_req, res) => {
   res.json({ products: sampleProducts });
 });
+
+// All remaining app and API routes can mutate workflows or spend model quota.
+app.use(requireAdminAuth);
+
+// Serve static frontend files after auth so deployed portals are not public.
+const webDistPath = path.join(__dirname, '..', 'web', 'dist');
+app.use(express.static(webDistPath));
 
 /**
  * Generate content for platforms
