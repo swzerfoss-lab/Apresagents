@@ -1,4 +1,4 @@
-import { execSync, exec } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseAgent } from './BaseAgent.js';
@@ -49,7 +49,7 @@ Your role is to help combine video clips into polished final videos.`,
    */
   private checkFfmpeg(): void {
     try {
-      execSync('ffmpeg -version', { stdio: 'pipe' });
+      execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' });
       this.ffmpegAvailable = true;
       console.log('[VideoEditor] ffmpeg is available');
     } catch {
@@ -146,15 +146,15 @@ After installing, restart your terminal and try again.
   private async concatSimple(clipPaths: string[], outputPath: string): Promise<void> {
     // Create a temporary file list for ffmpeg
     const listFile = path.join(path.dirname(outputPath), `concat_list_${Date.now()}.txt`);
-    const fileContent = clipPaths.map((p) => `file '${path.resolve(p)}'`).join('\n');
+    const fileContent = clipPaths.map((p) => `file ${this.formatConcatFilePath(path.resolve(p))}`).join('\n');
     fs.writeFileSync(listFile, fileContent);
 
     try {
       // Use ffmpeg concat demuxer for efficient concatenation
-      const command = `ffmpeg -y -f concat -safe 0 -i "${listFile}" -c copy "${outputPath}"`;
-      console.log('[VideoEditor] Running:', command);
+      const args = ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', outputPath];
+      console.log('[VideoEditor] Running ffmpeg concat');
 
-      await this.runCommand(command);
+      await this.runFfmpeg(args);
     } finally {
       // Clean up temp file
       if (fs.existsSync(listFile)) {
@@ -179,7 +179,7 @@ After installing, restart your terminal and try again.
 
     // For crossfade, we need to use complex filter
     // Build the filter graph
-    const inputs = clipPaths.map((p, i) => `-i "${p}"`).join(' ');
+    const inputArgs = clipPaths.flatMap((p) => ['-i', p]);
 
     // Build filter for crossfade between clips
     let filterComplex = '';
@@ -206,10 +206,20 @@ After installing, restart your terminal and try again.
     // Remove trailing semicolon and map final streams
     filterComplex = filterComplex.slice(0, -1);
 
-    const command = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "${currentStream}" -map "${audioStream}" "${outputPath}"`;
+    const args = [
+      '-y',
+      ...inputArgs,
+      '-filter_complex',
+      filterComplex,
+      '-map',
+      currentStream,
+      '-map',
+      audioStream,
+      outputPath,
+    ];
     console.log('[VideoEditor] Running crossfade command...');
 
-    await this.runCommand(command);
+    await this.runFfmpeg(args);
   }
 
   /**
@@ -217,8 +227,9 @@ After installing, restart your terminal and try again.
    */
   private async getVideoDuration(filePath: string): Promise<number> {
     try {
-      const result = execSync(
-        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+      const result = execFileSync(
+        'ffprobe',
+        ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath],
         { encoding: 'utf-8' }
       );
       return parseFloat(result.trim()) || 0;
@@ -228,11 +239,22 @@ After installing, restart your terminal and try again.
   }
 
   /**
-   * Run a shell command and return a promise
+   * Escape a path for ffmpeg's concat demuxer list file format.
    */
-  private runCommand(command: string): Promise<void> {
+  private formatConcatFilePath(filePath: string): string {
+    if (/[\r\n]/.test(filePath)) {
+      throw new Error(`Clip path contains unsupported newline characters: ${filePath}`);
+    }
+
+    return `'${filePath.replace(/\\/g, '\\\\').replace(/'/g, "'\\''")}'`;
+  }
+
+  /**
+   * Run ffmpeg with argument arrays so filenames are never interpreted by a shell.
+   */
+  private runFfmpeg(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      exec(command, { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+      execFile('ffmpeg', args, { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
         if (error) {
           console.error('[VideoEditor] stderr:', stderr);
           reject(error);
