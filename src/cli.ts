@@ -8,6 +8,7 @@ import { SocialMediaManagerAgent, VideoContentAgent } from './agents/index.js';
 import { VideoEditorAgent } from './agents/VideoEditorAgent.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
 import type { SocialPlatform, CampaignObjective } from './types/index.js';
+import { persistGeneratedClip } from './utils/videoPersistence.js';
 
 // Initialize agents
 const videoAgent = new VideoContentAgent(getBrandConfig());
@@ -536,6 +537,7 @@ program
                 aspectRatio: platform === 'facebook' ? '16:9' : '9:16',
                 duration: (clip.duration as 4 | 6 | 8) || 8,
                 style,
+                outputDirectory: outputDir,
                 withAudio: true,
                 useFastModel: options.fast,
               });
@@ -543,13 +545,15 @@ program
               if (videoResult.success && videoResult.data) {
                 clipSpinner.succeed(`Clip ${clip.clipNumber} generated!`);
 
-                // Save clip
-                if (videoResult.data.videoData) {
-                  const fileName = `clip_${clip.clipNumber}_${Date.now()}.mp4`;
-                  const filePath = pathModule.join(outputDir, fileName);
-                  fs.writeFileSync(filePath, Buffer.from(videoResult.data.videoData, 'base64'));
+                const filePath = persistGeneratedClip(videoResult.data, clip.clipNumber, outputDir);
+                if (filePath) {
                   console.log(chalk.blue(`  Saved to: ${filePath}`));
                   generatedClips.push(filePath);
+                } else if (videoResult.data.videoUrl) {
+                  console.log(chalk.yellow(`  Generated clip URL: ${videoResult.data.videoUrl}`));
+                  console.log(chalk.yellow('  Could not save clip locally; skipping auto-combine for this clip.'));
+                } else {
+                  console.log(chalk.yellow('  Clip generated without downloadable video data.'));
                 }
               } else {
                 clipSpinner.fail(`Clip ${clip.clipNumber} failed: ${videoResult.error}`);
