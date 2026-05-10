@@ -346,14 +346,10 @@ export class WeeklyWorkflowOrchestrator {
     const asset = assets.find(a => a.id === request.assetId);
     if (!asset) return null;
 
-    // Update prompt and reset status
-    asset.prompt = request.newPrompt;
-    asset.status = 'pending';
-    asset.url = undefined;
-    asset.filePath = undefined;
-    asset.generatedAt = undefined;
-
-    await this.storage.saveWorkflow(workflow);
+    const previousAssetState: GeneratedAsset = {
+      ...asset,
+      metadata: asset.metadata ? { ...asset.metadata } : undefined,
+    };
 
     // Now regenerate
     try {
@@ -370,12 +366,13 @@ export class WeeklyWorkflowOrchestrator {
 
         if (result.success && result.data) {
           const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.png`;
+          asset.prompt = request.newPrompt;
           asset.url = `/api/assets/images/${fileName}`;
           asset.filePath = result.data.filePath;
           asset.status = 'completed';
           asset.generatedAt = new Date();
         } else {
-          asset.status = 'failed';
+          throw new Error(result.error || 'Failed to regenerate image');
         }
       } else {
         const videosDir = path.join(this.assetsDir, 'videos');
@@ -386,17 +383,21 @@ export class WeeklyWorkflowOrchestrator {
 
         if (result.success && result.data) {
           const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.mp4`;
+          asset.prompt = request.newPrompt;
           asset.url = `/api/assets/videos/${fileName}`;
           asset.filePath = result.data.filePath;
           asset.status = 'completed';
           asset.generatedAt = new Date();
           asset.metadata = { prompt: result.data.prompt };
         } else {
-          asset.status = 'failed';
+          throw new Error(result.error || 'Failed to regenerate video');
         }
       }
-    } catch (_error) {
-      asset.status = 'failed';
+    } catch (error) {
+      Object.assign(asset, previousAssetState);
+      console.error(
+        `  ⚠️ Asset regeneration failed for ${asset.id}: ${error instanceof Error ? error.message : 'Unknown'}`
+      );
     }
 
     await this.storage.saveWorkflow(workflow);
