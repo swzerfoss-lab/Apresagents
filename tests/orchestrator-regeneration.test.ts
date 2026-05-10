@@ -113,7 +113,7 @@ describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
       status: 'completed',
       metadata: { source: 'original' },
     });
-    expect(result?.generatedAt).toEqual(originalGeneratedAt);
+    expect(result?.generatedAt).toBe(originalGeneratedAt.toISOString());
 
     const savedWorkflow = await storage.getWorkflow('workflow-1');
     const savedAsset = savedWorkflow?.posts[0].images[0];
@@ -124,6 +124,6 @@ describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
       status: 'completed',
       metadata: { source: 'original' },
     });
-    expect(savedAsset?.generatedAt).toEqual(originalGeneratedAt);
+    expect(savedAsset?.generatedAt).toBe(originalGeneratedAt.toISOString());
   });
 });
