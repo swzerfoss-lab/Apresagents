@@ -4,15 +4,7 @@ import os from 'os';
 import path from 'path';
 import { WeeklyWorkflowOrchestrator } from '../src/agents/WeeklyWorkflowOrchestrator.js';
 import { ContentStorage } from '../src/storage/ContentStorage.js';
-import type { BrandConfig, WeeklyWorkflow } from '../src/types/index.js';
-
-const brandConfig: BrandConfig = {
-  name: 'Test Brand',
-  description: 'A test brand for unit testing',
-  tone: ['professional', 'friendly'],
-  targetAudience: 'Test audience',
-  keywords: ['test', 'brand'],
-};
+import type { WeeklyWorkflow } from '../src/types/index.js';
 
 describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
   let tempDir: string;
@@ -22,7 +14,8 @@ describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workflow-regeneration-'));
     storage = new ContentStorage(tempDir);
-    orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    await storage.getAllWorkflows();
+    orchestrator = Object.create(WeeklyWorkflowOrchestrator.prototype) as WeeklyWorkflowOrchestrator;
 
     const testOrchestrator = orchestrator as unknown as {
       storage: ContentStorage;
