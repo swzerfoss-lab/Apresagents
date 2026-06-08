@@ -179,7 +179,7 @@ After installing, restart your terminal and try again.
 
     // For crossfade, we need to use complex filter
     // Build the filter graph
-    const inputs = clipPaths.map((p, i) => `-i "${p}"`).join(' ');
+    const inputs = clipPaths.map((p, _i) => `-i "${p}"`).join(' ');
 
     // Build filter for crossfade between clips
     let filterComplex = '';
