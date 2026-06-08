@@ -349,15 +349,21 @@ Always create prompts that will generate cinematic, on-brand video content captu
           } else if (videoData.videoUrl) {
             // Download from URL
             const videoResponse = await fetch(videoData.videoUrl);
+            if (!videoResponse.ok) {
+              throw new Error(
+                `Video download failed with status ${videoResponse.status} ${videoResponse.statusText}`.trim()
+              );
+            }
             const buffer = Buffer.from(await videoResponse.arrayBuffer());
             validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
             fs.writeFileSync(filePath, buffer);
             videoData.filePath = filePath;
+          } else {
+            throw new Error('No downloadable video data returned by provider');
           }
         } catch (downloadError) {
-          // Video URL is still available even if download fails
           const errMsg = downloadError instanceof Error ? downloadError.message : String(downloadError);
-          console.warn('Could not save video locally:', errMsg);
+          return { success: false, error: `Video generated but could not be saved locally: ${errMsg}` };
         }
       }
 
