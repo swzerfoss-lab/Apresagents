@@ -5,6 +5,9 @@
 import { timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 
+type HeaderValue = string | string[] | undefined;
+type HeaderReader = (name: string) => HeaderValue;
+
 function readEnv(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value ? value : undefined;
@@ -25,7 +28,7 @@ function safeEquals(actual: string | undefined, expected: string | undefined): b
   return timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
-function adminAuthConfigured(): boolean {
+export function adminAuthConfigured(): boolean {
   return Boolean(
     readEnv('ADMIN_API_TOKEN') ||
     (readEnv('ADMIN_USERNAME') && readEnv('ADMIN_PASSWORD'))
@@ -40,8 +43,15 @@ export function shouldRequireAdminAuth(): boolean {
   return adminAuthConfigured();
 }
 
-function bearerToken(req: Request): string | undefined {
-  const authHeader = req.get('authorization');
+function firstHeaderValue(value: HeaderValue): string | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
+}
+
+function bearerToken(authHeader: string | undefined): string | undefined {
   if (!authHeader) {
     return undefined;
   }
@@ -54,8 +64,7 @@ function bearerToken(req: Request): string | undefined {
   return token;
 }
 
-function basicCredentials(req: Request): { username: string; password: string } | undefined {
-  const authHeader = req.get('authorization');
+function basicCredentials(authHeader: string | undefined): { username: string; password: string } | undefined {
   if (!authHeader) {
     return undefined;
   }
@@ -81,9 +90,10 @@ function basicCredentials(req: Request): { username: string; password: string } 
   }
 }
 
-function hasValidAdminCredential(req: Request): boolean {
+export function hasValidAdminCredentialFromHeaders(getHeader: HeaderReader): boolean {
+  const authorization = firstHeaderValue(getHeader('authorization'));
   const expectedToken = readEnv('ADMIN_API_TOKEN');
-  const suppliedToken = req.get('x-admin-token') || bearerToken(req);
+  const suppliedToken = firstHeaderValue(getHeader('x-admin-token')) || bearerToken(authorization);
 
   if (safeEquals(suppliedToken, expectedToken)) {
     return true;
@@ -91,13 +101,17 @@ function hasValidAdminCredential(req: Request): boolean {
 
   const expectedUsername = readEnv('ADMIN_USERNAME');
   const expectedPassword = readEnv('ADMIN_PASSWORD');
-  const suppliedCredentials = basicCredentials(req);
+  const suppliedCredentials = basicCredentials(authorization);
 
   return Boolean(
     suppliedCredentials &&
     safeEquals(suppliedCredentials.username, expectedUsername) &&
     safeEquals(suppliedCredentials.password, expectedPassword)
   );
+}
+
+function hasValidAdminCredential(req: Request): boolean {
+  return hasValidAdminCredentialFromHeaders((name) => req.get(name));
 }
 
 export function requireAdminAuth(req: Request, res: Response, next: NextFunction) {

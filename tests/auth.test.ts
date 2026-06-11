@@ -1,9 +1,19 @@
 import express from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
+import workflowListHandler from '../api/workflow/list.js';
 import { requireAdminAuth, shouldRequireAdminAuth } from '../src/middleware/auth.js';
 
 const ORIGINAL_ENV = { ...process.env };
+
+interface MockVercelResponse {
+  statusCode: number;
+  body: unknown;
+  headers: Record<string, string | string[] | number>;
+  status: (code: number) => MockVercelResponse;
+  json: (body: unknown) => MockVercelResponse;
+  setHeader: (name: string, value: string | string[] | number) => MockVercelResponse;
+}
 
 function resetEnv() {
   process.env = { ...ORIGINAL_ENV };
@@ -20,6 +30,28 @@ function createProtectedApp() {
     res.json({ success: true });
   });
   return app;
+}
+
+function createMockVercelResponse(): MockVercelResponse {
+  const response: MockVercelResponse = {
+    statusCode: 200,
+    body: undefined,
+    headers: {},
+    status(code: number) {
+      response.statusCode = code;
+      return response;
+    },
+    json(body: unknown) {
+      response.body = body;
+      return response;
+    },
+    setHeader(name: string, value: string | string[] | number) {
+      response.headers[name.toLowerCase()] = value;
+      return response;
+    },
+  };
+
+  return response;
 }
 
 describe('admin authentication middleware', () => {
@@ -75,5 +107,20 @@ describe('admin authentication middleware', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+  });
+
+  it('rejects unauthenticated Vercel workflow list requests in production', async () => {
+    resetEnv();
+    process.env.NODE_ENV = 'production';
+    process.env.ADMIN_API_TOKEN = 'super-secret';
+
+    const req = { method: 'GET', headers: {} };
+    const res = createMockVercelResponse();
+
+    await workflowListHandler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toEqual({ error: 'Unauthorized' });
+    expect(res.headers['www-authenticate']).toBe('Basic realm="Apres Feels Admin"');
   });
 });
