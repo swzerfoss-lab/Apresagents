@@ -405,11 +405,18 @@ export class ContentStorage {
     return {
       ...post,
       scheduledDate: new Date(post.scheduledDate),
+      images: post.images.map((asset) => this.deserializeAsset(asset)),
+      videos: post.videos.map((asset) => this.deserializeAsset(asset)),
       createdAt: new Date(post.createdAt),
       approvedAt: post.approvedAt ? new Date(post.approvedAt) : undefined,
       publishedAt: post.publishedAt ? new Date(post.publishedAt) : undefined,
     };
   };
+
+  private deserializeAsset = (asset: GeneratedAsset): GeneratedAsset => ({
+    ...asset,
+    generatedAt: asset.generatedAt ? new Date(asset.generatedAt) : undefined,
+  });
 }
 
 export default ContentStorage;

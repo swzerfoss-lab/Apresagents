@@ -88,7 +88,7 @@ describe('VideoEditorAgent', () => {
   });
 
   it('rejects newline characters that would add extra concat-list entries', async () => {
-    const clipPath = path.join(tempDir, 'clip_1_bad\nfile /etc/passwd.mp4');
+    const clipPath = path.join(tempDir, 'clip_1_bad\nfile passwd.mp4');
     const outputPath = path.join(tempDir, 'final.mp4');
 
     fs.writeFileSync(clipPath, 'clip');
