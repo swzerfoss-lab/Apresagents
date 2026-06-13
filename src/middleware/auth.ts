@@ -35,12 +35,16 @@ export function adminAuthConfigured(): boolean {
   );
 }
 
+function isLocalOrTestEnvironment(): boolean {
+  return process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+}
+
 export function shouldRequireAdminAuth(): boolean {
-  if (process.env.NODE_ENV === 'production') {
+  if (adminAuthConfigured()) {
     return true;
   }
 
-  return adminAuthConfigured();
+  return !isLocalOrTestEnvironment();
 }
 
 function firstHeaderValue(value: HeaderValue): string | undefined {

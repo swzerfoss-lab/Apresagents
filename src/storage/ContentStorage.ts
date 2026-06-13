@@ -7,7 +7,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import { WeeklyWorkflow, ReadyPost, GeneratedAsset } from '../types/index.js';
+import { WeeklyWorkflow, ReadyPost, GeneratedAsset, PlannedPost, WorkflowError } from '../types/index.js';
 
 export class ContentStorage {
   private static workflowWriteQueues = new Map<string, Promise<void>>();
@@ -391,7 +391,19 @@ export class ContentStorage {
       weekEndDate: new Date(workflow.weekEndDate),
       createdAt: new Date(workflow.createdAt),
       completedAt: workflow.completedAt ? new Date(workflow.completedAt) : undefined,
+      strategy: workflow.strategy
+        ? {
+            ...workflow.strategy,
+            posts: workflow.strategy.posts.map((post) => this.deserializePlannedPost(post)),
+          }
+        : undefined,
       posts: workflow.posts.map((post) => this.deserializePost(post)),
+      errors: workflow.errors.map((error) => this.deserializeWorkflowError(error)),
+      metrics: {
+        ...workflow.metrics,
+        startTime: workflow.metrics.startTime ? new Date(workflow.metrics.startTime) : undefined,
+        endTime: workflow.metrics.endTime ? new Date(workflow.metrics.endTime) : undefined,
+      },
       // Ensure new fields have defaults
       stageApprovals: (workflow.stageApprovals || []).map(approval => ({
         ...approval,
@@ -413,9 +425,19 @@ export class ContentStorage {
     };
   };
 
+  private deserializePlannedPost = (post: PlannedPost): PlannedPost => ({
+    ...post,
+    scheduledDate: new Date(post.scheduledDate),
+  });
+
   private deserializeAsset = (asset: GeneratedAsset): GeneratedAsset => ({
     ...asset,
     generatedAt: asset.generatedAt ? new Date(asset.generatedAt) : undefined,
+  });
+
+  private deserializeWorkflowError = (error: WorkflowError): WorkflowError => ({
+    ...error,
+    timestamp: new Date(error.timestamp),
   });
 }
 

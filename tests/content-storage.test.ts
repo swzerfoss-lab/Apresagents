@@ -66,4 +66,55 @@ describe('ContentStorage', () => {
     const workflows = await firstStorage.getAllWorkflows();
     expect(workflows.map((workflow) => workflow.id).sort()).toEqual(['workflow-a', 'workflow-b']);
   });
+
+  it('deserializes nested workflow dates after loading from storage', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const scheduledDate = new Date('2026-05-04T12:00:00.000Z');
+    const startTime = new Date('2026-04-30T01:00:00.000Z');
+    const endTime = new Date('2026-04-30T02:00:00.000Z');
+    const errorTime = new Date('2026-04-30T03:00:00.000Z');
+    const workflow = createWorkflow('workflow-dates');
+
+    workflow.strategy = {
+      weekNumber: 18,
+      year: 2026,
+      theme: 'Spring launch',
+      goals: ['Launch campaign'],
+      posts: [
+        {
+          id: 'planned-post-1',
+          scheduledDate,
+          scheduledTime: '09:00',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'promotional',
+          topic: 'Spring products',
+          briefDescription: 'Announce the spring product collection',
+          priority: 'high',
+        },
+      ],
+    };
+    workflow.metrics.startTime = startTime;
+    workflow.metrics.endTime = endTime;
+    workflow.errors.push({
+      stage: 'assembly',
+      message: 'Transient formatting failure',
+      timestamp: errorTime,
+      recoverable: true,
+    });
+
+    await storage.saveWorkflow(workflow);
+
+    const loaded = await storage.getWorkflow('workflow-dates');
+
+    expect(loaded?.strategy?.posts[0].scheduledDate).toBeInstanceOf(Date);
+    expect(loaded?.strategy?.posts[0].scheduledDate.toISOString()).toBe(scheduledDate.toISOString());
+    expect(loaded?.metrics.startTime).toBeInstanceOf(Date);
+    expect(loaded?.metrics.startTime?.toISOString()).toBe(startTime.toISOString());
+    expect(loaded?.metrics.endTime).toBeInstanceOf(Date);
+    expect(loaded?.metrics.endTime?.toISOString()).toBe(endTime.toISOString());
+    expect(loaded?.errors[0].timestamp).toBeInstanceOf(Date);
+    expect(loaded?.errors[0].timestamp.toISOString()).toBe(errorTime.toISOString());
+  });
 });

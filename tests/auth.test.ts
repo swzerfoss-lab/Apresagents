@@ -59,10 +59,26 @@ describe('admin authentication middleware', () => {
     resetEnv();
   });
 
-  it('does not require admin credentials for local/test development by default', () => {
+  it('does not require admin credentials for explicit local/test development by default', () => {
     resetEnv();
 
     expect(shouldRequireAdminAuth()).toBe(false);
+
+    process.env.NODE_ENV = 'development';
+
+    expect(shouldRequireAdminAuth()).toBe(false);
+  });
+
+  it('fails closed when the runtime environment is not explicitly local', async () => {
+    resetEnv();
+    delete process.env.NODE_ENV;
+
+    expect(shouldRequireAdminAuth()).toBe(true);
+
+    const res = await request(createProtectedApp()).get('/protected');
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toContain('not configured');
   });
 
   it('rejects protected routes when production auth is not configured', async () => {
