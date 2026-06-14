@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContentStorage } from '../src/storage/ContentStorage.js';
-import { WeeklyWorkflow } from '../src/types/index.js';
+import { ReadyPost, WeeklyWorkflow } from '../src/types/index.js';
 
 const tempDirs: string[] = [];
 
@@ -27,6 +27,37 @@ function createWorkflow(id: string): WeeklyWorkflow {
     },
     stageApprovals: [],
     awaitingApproval: false,
+  };
+}
+
+function createPost(id: string, workflowId: string): ReadyPost {
+  const now = new Date('2026-04-30T00:00:00.000Z');
+
+  return {
+    id,
+    workflowId,
+    platform: 'instagram',
+    contentType: 'post',
+    category: 'promotional',
+    scheduledDate: now,
+    scheduledTime: '09:00',
+    status: 'ready',
+    caption: `Caption for ${id}`,
+    hashtags: ['#skincare'],
+    callToAction: 'Shop now',
+    images: [],
+    videos: [],
+    platformFormatting: {
+      platform: 'instagram',
+      formattedCaption: `Caption for ${id}`,
+      formattedHashtags: '#skincare',
+      characterCount: 14,
+      hashtagCount: 1,
+      aspectRatio: '1:1',
+      additionalNotes: [],
+      isWithinLimits: true,
+    },
+    createdAt: now,
   };
 }
 
@@ -65,6 +96,39 @@ describe('ContentStorage', () => {
 
     const workflows = await firstStorage.getAllWorkflows();
     expect(workflows.map((workflow) => workflow.id).sort()).toEqual(['workflow-a', 'workflow-b']);
+  });
+
+  it('preserves concurrent status updates for different posts in the same workflow', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-status-race');
+    workflow.posts = Array.from({ length: 8 }, (_value, index) =>
+      createPost(`post-${index}`, workflow.id)
+    );
+    workflow.metrics.totalPosts = workflow.posts.length;
+
+    await storage.saveWorkflow(workflow);
+
+    await Promise.all(
+      workflow.posts.map((post, index) => {
+        const status = index % 2 === 0 ? 'approved' : 'published';
+        const timestamp = new Date(`2026-04-30T00:00:0${index}.000Z`);
+        return new ContentStorage(storageDir).updatePostStatus(post.id, status, timestamp);
+      })
+    );
+
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(loaded?.posts.map((post) => post.status)).toEqual([
+      'approved',
+      'published',
+      'approved',
+      'published',
+      'approved',
+      'published',
+      'approved',
+      'published',
+    ]);
   });
 
   it('deserializes nested workflow dates after loading from storage', async () => {

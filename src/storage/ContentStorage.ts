@@ -224,23 +224,38 @@ export class ContentStorage {
     status: ReadyPost['status'],
     timestamp?: Date
   ): Promise<boolean> {
-    const workflows = await this.getAllWorkflows();
+    let postsToSave: ReadyPost[] | undefined;
+    const updated = await this.withWorkflowWriteLock(async () => {
+      const data = await this.loadWorkflowsData();
 
-    for (const workflow of workflows) {
-      const post = workflow.posts.find((p) => p.id === postId);
-      if (post) {
+      for (const workflow of data.workflows) {
+        const post = workflow.posts.find((p) => p.id === postId);
+        if (!post) {
+          continue;
+        }
+
         post.status = status;
         if (status === 'approved') {
           post.approvedAt = timestamp || new Date();
         } else if (status === 'published') {
           post.publishedAt = timestamp || new Date();
         }
-        await this.saveWorkflow(workflow);
+
+        postsToSave = workflow.posts;
+        await this.writeWorkflowsData(data);
         return true;
+      }
+
+      return false;
+    });
+
+    if (updated && postsToSave) {
+      for (const post of postsToSave) {
+        await this.savePost(post);
       }
     }
 
-    return false;
+    return updated;
   }
 
   /**
