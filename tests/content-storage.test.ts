@@ -1,8 +1,41 @@
-import * as fsPromises from 'fs/promises';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+type FsPromises = typeof import('fs/promises');
+type WriteFile = FsPromises['writeFile'];
+
+const fsMock = vi.hoisted((): {
+  writeFileHook?: (
+    actualWriteFile: WriteFile,
+    ...args: Parameters<WriteFile>
+  ) => ReturnType<WriteFile>;
+} => ({}));
+
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<FsPromises>();
+  const writeFile = vi.fn((...args: Parameters<WriteFile>) => {
+    const hook = fsMock.writeFileHook;
+
+    if (hook) {
+      fsMock.writeFileHook = undefined;
+      return hook(actual.writeFile, ...args);
+    }
+
+    return actual.writeFile(...args);
+  }) as unknown as WriteFile;
+
+  return {
+    ...actual,
+    default: {
+      ...actual.default,
+      writeFile,
+    },
+    writeFile,
+  };
+});
+
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ContentStorage } from '../src/storage/ContentStorage.js';
 import { ReadyPost, WeeklyWorkflow } from '../src/types/index.js';
 
@@ -69,6 +102,7 @@ async function createStorageDir(): Promise<string> {
 }
 
 afterEach(async () => {
+  fsMock.writeFileHook = undefined;
   vi.restoreAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
@@ -78,12 +112,11 @@ describe('ContentStorage', () => {
     const storageDir = await createStorageDir();
     const workflowsFile = path.join(storageDir, 'workflows.json');
     const existingData = JSON.stringify({ workflows: [createWorkflow('existing-workflow')] }, null, 2);
-    const originalWriteFile = fsPromises.writeFile;
 
-    vi.spyOn(fsPromises, 'writeFile').mockImplementationOnce(async (file, data, options) => {
-      await originalWriteFile(workflowsFile, existingData);
-      return originalWriteFile(file, data, options);
-    });
+    fsMock.writeFileHook = async (actualWriteFile, file, data, options) => {
+      await actualWriteFile(workflowsFile, existingData);
+      return actualWriteFile(file, data, options);
+    };
 
     const storage = new ContentStorage(storageDir);
 
