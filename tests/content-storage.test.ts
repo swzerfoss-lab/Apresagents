@@ -1,7 +1,8 @@
+import * as fsPromises from 'fs/promises';
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ContentStorage } from '../src/storage/ContentStorage.js';
 import { ReadyPost, WeeklyWorkflow } from '../src/types/index.js';
 
@@ -68,10 +69,30 @@ async function createStorageDir(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 describe('ContentStorage', () => {
+  it('does not let a late initializer overwrite workflows created by another writer', async () => {
+    const storageDir = await createStorageDir();
+    const workflowsFile = path.join(storageDir, 'workflows.json');
+    const existingData = JSON.stringify({ workflows: [createWorkflow('existing-workflow')] }, null, 2);
+    const originalWriteFile = fsPromises.writeFile;
+
+    vi.spyOn(fsPromises, 'writeFile').mockImplementationOnce(async (file, data, options) => {
+      await originalWriteFile(workflowsFile, existingData);
+      return originalWriteFile(file, data, options);
+    });
+
+    const storage = new ContentStorage(storageDir);
+
+    const workflows = await storage.getAllWorkflows();
+
+    expect(workflows.map((workflow) => workflow.id)).toEqual(['existing-workflow']);
+    await expect(readFile(workflowsFile, 'utf-8')).resolves.toBe(existingData);
+  });
+
   it('does not overwrite workflows when the workflow index is corrupt', async () => {
     const storageDir = await createStorageDir();
     const workflowsFile = path.join(storageDir, 'workflows.json');

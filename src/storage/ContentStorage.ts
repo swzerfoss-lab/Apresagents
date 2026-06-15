@@ -51,12 +51,7 @@ export class ContentStorage {
       await fs.mkdir(path.join(this.assetsDir, 'images'), { recursive: true });
       await fs.mkdir(path.join(this.assetsDir, 'videos'), { recursive: true });
 
-      // Initialize workflows file if it doesn't exist
-      try {
-        await fs.access(this.workflowsFile);
-      } catch {
-        await fs.writeFile(this.workflowsFile, JSON.stringify({ workflows: [] }, null, 2));
-      }
+      await this.createWorkflowsFileIfMissing();
       this.initialized = true;
       console.log('📁 Content storage initialized at:', this.storageDir);
     } catch (error) {
@@ -369,6 +364,20 @@ export class ContentStorage {
     await fs.rename(tempFile, this.workflowsFile);
   }
 
+  private async createWorkflowsFileIfMissing(): Promise<void> {
+    try {
+      await fs.writeFile(this.workflowsFile, JSON.stringify({ workflows: [] }, null, 2), {
+        flag: 'wx',
+      });
+    } catch (error) {
+      if (this.isFileAlreadyExistsError(error)) {
+        return;
+      }
+
+      throw error;
+    }
+  }
+
   private async withWorkflowWriteLock<T>(operation: () => Promise<T>): Promise<T> {
     const previous = ContentStorage.workflowWriteQueues.get(this.workflowsFile) || Promise.resolve();
     let release!: () => void;
@@ -391,11 +400,19 @@ export class ContentStorage {
   }
 
   private isFileNotFoundError(error: unknown): boolean {
+    return this.hasErrorCode(error, 'ENOENT');
+  }
+
+  private isFileAlreadyExistsError(error: unknown): boolean {
+    return this.hasErrorCode(error, 'EEXIST');
+  }
+
+  private hasErrorCode(error: unknown, code: string): boolean {
     return (
       typeof error === 'object' &&
       error !== null &&
       'code' in error &&
-      (error as { code?: string }).code === 'ENOENT'
+      (error as { code?: string }).code === code
     );
   }
 
