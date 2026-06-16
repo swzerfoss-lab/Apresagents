@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseAgent } from './BaseAgent.js';
@@ -165,7 +166,7 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
 
       // Optionally save to file
       if (options.outputDirectory) {
-        const fileName = `apresfeels_${Date.now()}.png`;
+        const fileName = `apresfeels_${Date.now()}_${randomUUID()}.png`;
         const filePath = path.join(options.outputDirectory, fileName);
         const buffer = Buffer.from(imageData.base64Data, 'base64');
         validateBufferSize(buffer, MAX_IMAGE_SIZE, 'Image');

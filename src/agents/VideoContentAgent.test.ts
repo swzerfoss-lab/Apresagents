@@ -86,7 +86,26 @@ describe('VideoContentAgent.generateVideo local persistence', () => {
     const result = await agent.generateVideo('ski recovery product shot', { outputDirectory });
 
     expect(result.success).toBe(true);
-    expect(result.data?.filePath).toMatch(/^.+apresfeels_video_\d+\.mp4$/);
+    expect(result.data?.filePath).toMatch(/^.+apresfeels_video_\d+_[0-9a-f-]+\.mp4$/);
     await expect(readFile(result.data!.filePath!, 'utf-8')).resolves.toBe('valid video bytes');
+  });
+
+  it('uses unique filenames for concurrent saves in the same millisecond', async () => {
+    const outputDirectory = await createTempDir();
+    const agent = createVideoAgent({
+      videoBytes: Buffer.from('valid video bytes').toString('base64'),
+      mimeType: 'video/mp4',
+    });
+    vi.spyOn(Date, 'now').mockReturnValue(1760000000000);
+
+    const results = await Promise.all([
+      agent.generateVideo('first ski recovery product shot', { outputDirectory }),
+      agent.generateVideo('second ski recovery product shot', { outputDirectory }),
+    ]);
+
+    const filePaths = results.map((result) => result.data?.filePath);
+    expect(results.every((result) => result.success)).toBe(true);
+    expect(new Set(filePaths).size).toBe(2);
+    expect(await readdir(outputDirectory)).toHaveLength(2);
   });
 });

@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseAgent } from './BaseAgent.js';
@@ -336,7 +337,7 @@ Always create prompts that will generate cinematic, on-brand video content captu
 
       // Save video if output directory specified
       if (options.outputDirectory) {
-        const fileName = `apresfeels_video_${Date.now()}.mp4`;
+        const fileName = `apresfeels_video_${Date.now()}_${randomUUID()}.mp4`;
         const filePath = path.join(options.outputDirectory, fileName);
 
         try {
