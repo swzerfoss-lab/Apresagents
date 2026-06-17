@@ -162,7 +162,8 @@ export class WeeklyWorkflowOrchestrator {
       skipImageGeneration?: boolean;
     }
   ): Promise<WeeklyWorkflow> {
-    const observedWorkflow = await this.storage.getWorkflow(workflowId);
+    const observedWorkflow =
+      await this.getWorkflowForOperation(workflowId);
     if (!observedWorkflow) {
       throw new Error('Workflow not found');
     }
@@ -172,7 +173,7 @@ export class WeeklyWorkflowOrchestrator {
     const observedStage = observedWorkflow.currentStage;
 
     return this.withWorkflowOperationLock(workflowId, async () => {
-      const workflow = await this.storage.getWorkflow(workflowId);
+      const workflow = await this.getWorkflowForOperation(workflowId);
       if (!workflow) {
         throw new Error('Workflow not found');
       }
@@ -872,6 +873,19 @@ export class WeeklyWorkflowOrchestrator {
         'Cannot modify workflow content while a stage is running; wait for the next approval checkpoint'
       );
     }
+  }
+
+  private async getWorkflowForOperation(workflowId: string): Promise<WeeklyWorkflow | null> {
+    const workflow = await this.storage.getWorkflow(workflowId);
+    if (workflow) {
+      return workflow;
+    }
+
+    if (this.currentWorkflow?.id === workflowId) {
+      return this.currentWorkflow;
+    }
+
+    return null;
   }
 
   private getNextMondayDate(): Date {
