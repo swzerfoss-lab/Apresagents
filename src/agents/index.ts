@@ -23,4 +23,7 @@ export type { PlatformSpecs } from './platforms/index.js';
 export { SocialMediaManagerAgent } from './SocialMediaManagerAgent.js';
 
 // Weekly workflow orchestrator
-export { WeeklyWorkflowOrchestrator } from './WeeklyWorkflowOrchestrator.js';
+export {
+  WeeklyWorkflowOrchestrator,
+  WorkflowMutationConflictError,
+} from './WeeklyWorkflowOrchestrator.js';

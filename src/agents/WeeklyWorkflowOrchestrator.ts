@@ -39,7 +39,16 @@ import {
 import { ContentStorage } from '../storage/ContentStorage.js';
 import { parallelLimit } from '../utils/async.js';
 
+export class WorkflowMutationConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkflowMutationConflictError';
+  }
+}
+
 export class WeeklyWorkflowOrchestrator {
+  private static workflowOperationQueues = new Map<string, Promise<void>>();
+
   private strategyAgent: ContentStrategyAgent;
   private copywritingAgent: CopywritingAgent;
   private visualAgent: VisualContentAgent;
@@ -153,134 +162,146 @@ export class WeeklyWorkflowOrchestrator {
       skipImageGeneration?: boolean;
     }
   ): Promise<WeeklyWorkflow> {
-    // Load workflow if not current
-    if (!this.currentWorkflow || this.currentWorkflow.id !== workflowId) {
+    const observedWorkflow = await this.storage.getWorkflow(workflowId);
+    if (!observedWorkflow) {
+      throw new Error('Workflow not found');
+    }
+    if (!observedWorkflow.awaitingApproval) {
+      throw new Error('Workflow is not awaiting approval');
+    }
+    const observedStage = observedWorkflow.currentStage;
+
+    return this.withWorkflowOperationLock(workflowId, async () => {
       const workflow = await this.storage.getWorkflow(workflowId);
       if (!workflow) {
         throw new Error('Workflow not found');
       }
       this.currentWorkflow = workflow;
-    }
 
-    if (!this.currentWorkflow.awaitingApproval) {
-      throw new Error('Workflow is not awaiting approval');
-    }
-
-    const currentStage = this.currentWorkflow.currentStage;
-
-    // Record approval
-    this.currentWorkflow.stageApprovals.push({
-      stage: currentStage,
-      approved: true,
-      approvedAt: new Date(),
-    });
-    this.currentWorkflow.awaitingApproval = false;
-
-    try {
-      // Determine next stage and execute
-      if (currentStage === 'strategy') {
-        this.currentWorkflow.status = 'strategy-complete';
-        await this.storage.saveWorkflow(this.currentWorkflow);
-
-        console.log('✍️ Stage 2: Generating Copy and Prompts...');
-        this.currentWorkflow.currentStage = 'copywriting';
-        this.currentWorkflow.status = 'running';
-        await this.storage.saveWorkflow(this.currentWorkflow);
-
-        await this.executeCopywritingStage();
-        this.currentWorkflow.status = 'awaiting-approval';
-        this.currentWorkflow.awaitingApproval = true;
-        await this.storage.saveWorkflow(this.currentWorkflow);
-        console.log('✅ Copywriting complete - awaiting approval\n');
-
-      } else if (currentStage === 'copywriting') {
-        this.currentWorkflow.status = 'copywriting-complete';
-        await this.storage.saveWorkflow(this.currentWorkflow);
-
-        if (!options?.skipImageGeneration) {
-          console.log('🎨 Stage 3: Generating Images...');
-          this.currentWorkflow.currentStage = 'image-generation';
-          this.currentWorkflow.status = 'running';
-          await this.storage.saveWorkflow(this.currentWorkflow);
-
-          await this.executeImageGenerationStage();
-          this.currentWorkflow.status = 'awaiting-approval';
-          this.currentWorkflow.awaitingApproval = true;
-          await this.storage.saveWorkflow(this.currentWorkflow);
-          console.log('✅ Images complete - awaiting approval\n');
-        } else {
-          // Skip to video or assembly
-          if (options?.skipVideoGeneration) {
-            await this.runAssemblyStageAndPause();
-          } else {
-            await this.runVideoGenerationStageAndPause();
-          }
-        }
-
-      } else if (currentStage === 'image-generation') {
-        this.currentWorkflow.status = 'images-complete';
-        await this.storage.saveWorkflow(this.currentWorkflow);
-
-        if (!options?.skipVideoGeneration) {
-          console.log('🎬 Stage 4: Generating Videos...');
-          this.currentWorkflow.currentStage = 'video-generation';
-          this.currentWorkflow.status = 'running';
-          await this.storage.saveWorkflow(this.currentWorkflow);
-
-          await this.executeVideoGenerationStage();
-          this.currentWorkflow.status = 'awaiting-approval';
-          this.currentWorkflow.awaitingApproval = true;
-          await this.storage.saveWorkflow(this.currentWorkflow);
-          console.log('✅ Videos complete - awaiting approval\n');
-        } else {
-          // Skip to assembly
-          await this.runAssemblyStageAndPause();
-        }
-
-      } else if (currentStage === 'video-generation') {
-        this.currentWorkflow.status = 'videos-complete';
-        await this.storage.saveWorkflow(this.currentWorkflow);
-
-        console.log('📦 Stage 5: Assembling Ready Posts...');
-        this.currentWorkflow.currentStage = 'assembly';
-        this.currentWorkflow.status = 'running';
-        await this.storage.saveWorkflow(this.currentWorkflow);
-
-        await this.executeAssemblyStage();
-        this.currentWorkflow.status = 'awaiting-approval';
-        this.currentWorkflow.awaitingApproval = true;
-        await this.storage.saveWorkflow(this.currentWorkflow);
-        console.log('✅ Assembly complete - awaiting final approval\n');
-
-      } else if (currentStage === 'assembly') {
-        // Final stage - mark workflow as complete
-        this.currentWorkflow.status = 'completed';
-        this.currentWorkflow.awaitingApproval = false;
-        this.currentWorkflow.completedAt = new Date();
-        this.currentWorkflow.metrics.endTime = new Date();
-        this.currentWorkflow.metrics.totalDurationMs =
-          this.currentWorkflow.metrics.endTime.getTime() -
-          (this.currentWorkflow.metrics.startTime?.getTime() || 0);
-
-        await this.storage.saveWorkflow(this.currentWorkflow);
-
-        console.log('🎉 Weekly Workflow Complete!');
-        console.log(`Total Posts: ${this.currentWorkflow.metrics.totalPosts}`);
-        console.log(`Images Generated: ${this.currentWorkflow.metrics.imagesGenerated}`);
-        console.log(`Videos Generated: ${this.currentWorkflow.metrics.videosGenerated}`);
+      if (!this.currentWorkflow.awaitingApproval) {
+        throw new Error('Workflow is not awaiting approval');
       }
 
-      return this.currentWorkflow;
-    } catch (error) {
-      this.currentWorkflow.status = 'failed';
-      this.addError(
-        this.currentWorkflow.currentStage,
-        `Workflow failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        false
-      );
-      await this.storage.saveWorkflow(this.currentWorkflow);
-      throw error;
-    }
+      if (this.currentWorkflow.currentStage !== observedStage) {
+        throw new WorkflowMutationConflictError('Workflow stage has already been approved');
+      }
+
+      const currentStage = this.currentWorkflow.currentStage;
+
+      // Record approval
+      this.currentWorkflow.stageApprovals.push({
+        stage: currentStage,
+        approved: true,
+        approvedAt: new Date(),
+      });
+      this.currentWorkflow.awaitingApproval = false;
+
+      try {
+        // Determine next stage and execute
+        if (currentStage === 'strategy') {
+          this.currentWorkflow.status = 'strategy-complete';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          console.log('✍️ Stage 2: Generating Copy and Prompts...');
+          this.currentWorkflow.currentStage = 'copywriting';
+          this.currentWorkflow.status = 'running';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          await this.executeCopywritingStage();
+          this.currentWorkflow.status = 'awaiting-approval';
+          this.currentWorkflow.awaitingApproval = true;
+          await this.storage.saveWorkflow(this.currentWorkflow);
+          console.log('✅ Copywriting complete - awaiting approval\n');
+
+        } else if (currentStage === 'copywriting') {
+          this.currentWorkflow.status = 'copywriting-complete';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          if (!options?.skipImageGeneration) {
+            console.log('🎨 Stage 3: Generating Images...');
+            this.currentWorkflow.currentStage = 'image-generation';
+            this.currentWorkflow.status = 'running';
+            await this.storage.saveWorkflow(this.currentWorkflow);
+
+            await this.executeImageGenerationStage();
+            this.currentWorkflow.status = 'awaiting-approval';
+            this.currentWorkflow.awaitingApproval = true;
+            await this.storage.saveWorkflow(this.currentWorkflow);
+            console.log('✅ Images complete - awaiting approval\n');
+          } else {
+            // Skip to video or assembly
+            if (options?.skipVideoGeneration) {
+              await this.runAssemblyStageAndPause();
+            } else {
+              await this.runVideoGenerationStageAndPause();
+            }
+          }
+
+        } else if (currentStage === 'image-generation') {
+          this.currentWorkflow.status = 'images-complete';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          if (!options?.skipVideoGeneration) {
+            console.log('🎬 Stage 4: Generating Videos...');
+            this.currentWorkflow.currentStage = 'video-generation';
+            this.currentWorkflow.status = 'running';
+            await this.storage.saveWorkflow(this.currentWorkflow);
+
+            await this.executeVideoGenerationStage();
+            this.currentWorkflow.status = 'awaiting-approval';
+            this.currentWorkflow.awaitingApproval = true;
+            await this.storage.saveWorkflow(this.currentWorkflow);
+            console.log('✅ Videos complete - awaiting approval\n');
+          } else {
+            // Skip to assembly
+            await this.runAssemblyStageAndPause();
+          }
+
+        } else if (currentStage === 'video-generation') {
+          this.currentWorkflow.status = 'videos-complete';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          console.log('📦 Stage 5: Assembling Ready Posts...');
+          this.currentWorkflow.currentStage = 'assembly';
+          this.currentWorkflow.status = 'running';
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          await this.executeAssemblyStage();
+          this.currentWorkflow.status = 'awaiting-approval';
+          this.currentWorkflow.awaitingApproval = true;
+          await this.storage.saveWorkflow(this.currentWorkflow);
+          console.log('✅ Assembly complete - awaiting final approval\n');
+
+        } else if (currentStage === 'assembly') {
+          // Final stage - mark workflow as complete
+          this.currentWorkflow.status = 'completed';
+          this.currentWorkflow.awaitingApproval = false;
+          this.currentWorkflow.completedAt = new Date();
+          this.currentWorkflow.metrics.endTime = new Date();
+          this.currentWorkflow.metrics.totalDurationMs =
+            this.currentWorkflow.metrics.endTime.getTime() -
+            (this.currentWorkflow.metrics.startTime?.getTime() || 0);
+
+          await this.storage.saveWorkflow(this.currentWorkflow);
+
+          console.log('🎉 Weekly Workflow Complete!');
+          console.log(`Total Posts: ${this.currentWorkflow.metrics.totalPosts}`);
+          console.log(`Images Generated: ${this.currentWorkflow.metrics.imagesGenerated}`);
+          console.log(`Videos Generated: ${this.currentWorkflow.metrics.videosGenerated}`);
+        }
+
+        return this.currentWorkflow;
+      } catch (error) {
+        this.currentWorkflow.status = 'failed';
+        this.addError(
+          this.currentWorkflow.currentStage,
+          `Workflow failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          false
+        );
+        await this.storage.saveWorkflow(this.currentWorkflow);
+        throw error;
+      }
+    });
   }
 
   private async runVideoGenerationStageAndPause(): Promise<void> {
@@ -313,128 +334,137 @@ export class WeeklyWorkflowOrchestrator {
    * Edit post content (caption, hashtags, CTA)
    */
   async editPostContent(workflowId: string, edit: ContentEditRequest): Promise<ReadyPost | null> {
-    const workflow = await this.storage.getWorkflow(workflowId);
-    if (!workflow) return null;
+    return this.withWorkflowOperationLock(workflowId, async () => {
+      const workflow = await this.storage.getWorkflow(workflowId);
+      if (!workflow) return null;
+      this.assertManualMutationAllowed(workflow);
 
-    const post = workflow.posts.find(p => p.id === edit.postId);
-    if (!post) return null;
+      const post = workflow.posts.find(p => p.id === edit.postId);
+      if (!post) return null;
 
-    if (edit.caption !== undefined) post.caption = edit.caption;
-    if (edit.hashtags !== undefined) post.hashtags = edit.hashtags;
-    if (edit.callToAction !== undefined) post.callToAction = edit.callToAction;
+      if (edit.caption !== undefined) post.caption = edit.caption;
+      if (edit.hashtags !== undefined) post.hashtags = edit.hashtags;
+      if (edit.callToAction !== undefined) post.callToAction = edit.callToAction;
 
-    await this.storage.saveWorkflow(workflow);
+      await this.storage.saveWorkflow(workflow);
 
-    // Update current workflow if it's the same
-    if (this.currentWorkflow?.id === workflowId) {
-      this.currentWorkflow = workflow;
-    }
+      // Update current workflow if it's the same
+      if (this.currentWorkflow?.id === workflowId) {
+        this.currentWorkflow = workflow;
+      }
 
-    return post;
+      return post;
+    });
   }
 
   /**
    * Edit planned post in calendar (before copywriting)
    */
   async editCalendarEntry(workflowId: string, edit: CalendarEditRequest): Promise<PlannedPost | null> {
-    const workflow = await this.storage.getWorkflow(workflowId);
-    if (!workflow || !workflow.strategy) return null;
+    return this.withWorkflowOperationLock(workflowId, async () => {
+      const workflow = await this.storage.getWorkflow(workflowId);
+      if (!workflow || !workflow.strategy) return null;
+      this.assertManualMutationAllowed(workflow);
 
-    const plannedPost = workflow.strategy.posts.find(p => p.id === edit.postId);
-    if (!plannedPost) return null;
+      const plannedPost = workflow.strategy.posts.find(p => p.id === edit.postId);
+      if (!plannedPost) return null;
 
-    if (edit.scheduledDate !== undefined) plannedPost.scheduledDate = edit.scheduledDate;
-    if (edit.scheduledTime !== undefined) plannedPost.scheduledTime = edit.scheduledTime;
-    if (edit.topic !== undefined) plannedPost.topic = edit.topic;
-    if (edit.briefDescription !== undefined) plannedPost.briefDescription = edit.briefDescription;
-    if (edit.platform !== undefined) plannedPost.platform = edit.platform;
-    if (edit.contentType !== undefined) plannedPost.contentType = edit.contentType;
-    if (edit.category !== undefined) plannedPost.category = edit.category;
+      if (edit.scheduledDate !== undefined) plannedPost.scheduledDate = edit.scheduledDate;
+      if (edit.scheduledTime !== undefined) plannedPost.scheduledTime = edit.scheduledTime;
+      if (edit.topic !== undefined) plannedPost.topic = edit.topic;
+      if (edit.briefDescription !== undefined) plannedPost.briefDescription = edit.briefDescription;
+      if (edit.platform !== undefined) plannedPost.platform = edit.platform;
+      if (edit.contentType !== undefined) plannedPost.contentType = edit.contentType;
+      if (edit.category !== undefined) plannedPost.category = edit.category;
 
-    await this.storage.saveWorkflow(workflow);
+      await this.storage.saveWorkflow(workflow);
 
-    if (this.currentWorkflow?.id === workflowId) {
-      this.currentWorkflow = workflow;
-    }
+      if (this.currentWorkflow?.id === workflowId) {
+        this.currentWorkflow = workflow;
+      }
 
-    return plannedPost;
+      return plannedPost;
+    });
   }
 
   /**
    * Regenerate an asset with a new prompt
    */
   async regenerateAsset(workflowId: string, request: AssetRegenerateRequest): Promise<GeneratedAsset | null> {
-    const workflow = await this.storage.getWorkflow(workflowId);
-    if (!workflow) return null;
+    return this.withWorkflowOperationLock(workflowId, async () => {
+      const workflow = await this.storage.getWorkflow(workflowId);
+      if (!workflow) return null;
+      this.assertManualMutationAllowed(workflow);
 
-    const post = workflow.posts.find(p => p.id === request.postId);
-    if (!post) return null;
+      const post = workflow.posts.find(p => p.id === request.postId);
+      if (!post) return null;
 
-    const assets = request.type === 'image' ? post.images : post.videos;
-    const asset = assets.find(a => a.id === request.assetId);
-    if (!asset) return null;
+      const assets = request.type === 'image' ? post.images : post.videos;
+      const asset = assets.find(a => a.id === request.assetId);
+      if (!asset) return null;
 
-    const previousAssetState: GeneratedAsset = {
-      ...asset,
-      metadata: asset.metadata ? { ...asset.metadata } : undefined,
-    };
+      const previousAssetState: GeneratedAsset = {
+        ...asset,
+        metadata: asset.metadata ? { ...asset.metadata } : undefined,
+      };
 
-    // Now regenerate
-    try {
-      asset.status = 'generating';
+      // Now regenerate
+      try {
+        asset.status = 'generating';
+        await this.storage.saveWorkflow(workflow);
+
+        if (request.type === 'image') {
+          const aspectRatio = this.getImageAspectRatio(post.platform, post.contentType);
+          const imagesDir = path.join(this.assetsDir, 'images');
+          const result = await this.visualAgent.generateImage(request.newPrompt, {
+            aspectRatio,
+            outputDirectory: imagesDir,
+          });
+
+          if (result.success && result.data) {
+            const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.png`;
+            asset.prompt = request.newPrompt;
+            asset.url = `/api/assets/images/${fileName}`;
+            asset.filePath = result.data.filePath;
+            asset.status = 'completed';
+            asset.generatedAt = new Date();
+          } else {
+            throw new Error(result.error || 'Failed to regenerate image');
+          }
+        } else {
+          const videosDir = path.join(this.assetsDir, 'videos');
+          const result = await this.videoAgent.generateVideo(request.newPrompt, {
+            duration: 8,
+            outputDirectory: videosDir,
+          });
+
+          if (result.success && result.data) {
+            const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.mp4`;
+            asset.prompt = request.newPrompt;
+            asset.url = `/api/assets/videos/${fileName}`;
+            asset.filePath = result.data.filePath;
+            asset.status = 'completed';
+            asset.generatedAt = new Date();
+            asset.metadata = { prompt: result.data.prompt };
+          } else {
+            throw new Error(result.error || 'Failed to regenerate video');
+          }
+        }
+      } catch (error) {
+        Object.assign(asset, previousAssetState);
+        console.error(
+          `  ⚠️ Asset regeneration failed for ${asset.id}: ${error instanceof Error ? error.message : 'Unknown'}`
+        );
+      }
+
       await this.storage.saveWorkflow(workflow);
 
-      if (request.type === 'image') {
-        const aspectRatio = this.getImageAspectRatio(post.platform, post.contentType);
-        const imagesDir = path.join(this.assetsDir, 'images');
-        const result = await this.visualAgent.generateImage(request.newPrompt, {
-          aspectRatio,
-          outputDirectory: imagesDir,
-        });
-
-        if (result.success && result.data) {
-          const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.png`;
-          asset.prompt = request.newPrompt;
-          asset.url = `/api/assets/images/${fileName}`;
-          asset.filePath = result.data.filePath;
-          asset.status = 'completed';
-          asset.generatedAt = new Date();
-        } else {
-          throw new Error(result.error || 'Failed to regenerate image');
-        }
-      } else {
-        const videosDir = path.join(this.assetsDir, 'videos');
-        const result = await this.videoAgent.generateVideo(request.newPrompt, {
-          duration: 8,
-          outputDirectory: videosDir,
-        });
-
-        if (result.success && result.data) {
-          const fileName = result.data.filePath ? path.basename(result.data.filePath) : `${asset.id}.mp4`;
-          asset.prompt = request.newPrompt;
-          asset.url = `/api/assets/videos/${fileName}`;
-          asset.filePath = result.data.filePath;
-          asset.status = 'completed';
-          asset.generatedAt = new Date();
-          asset.metadata = { prompt: result.data.prompt };
-        } else {
-          throw new Error(result.error || 'Failed to regenerate video');
-        }
+      if (this.currentWorkflow?.id === workflowId) {
+        this.currentWorkflow = workflow;
       }
-    } catch (error) {
-      Object.assign(asset, previousAssetState);
-      console.error(
-        `  ⚠️ Asset regeneration failed for ${asset.id}: ${error instanceof Error ? error.message : 'Unknown'}`
-      );
-    }
 
-    await this.storage.saveWorkflow(workflow);
-
-    if (this.currentWorkflow?.id === workflowId) {
-      this.currentWorkflow = workflow;
-    }
-
-    return asset;
+      return asset;
+    });
   }
 
   /**
@@ -811,6 +841,38 @@ export class WeeklyWorkflowOrchestrator {
   }
 
   // Helper methods
+
+  private async withWorkflowOperationLock<T>(
+    workflowId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const previous = WeeklyWorkflowOrchestrator.workflowOperationQueues.get(workflowId) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.catch(() => undefined).then(() => current);
+    WeeklyWorkflowOrchestrator.workflowOperationQueues.set(workflowId, queued);
+
+    await previous.catch(() => undefined);
+
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (WeeklyWorkflowOrchestrator.workflowOperationQueues.get(workflowId) === queued) {
+        WeeklyWorkflowOrchestrator.workflowOperationQueues.delete(workflowId);
+      }
+    }
+  }
+
+  private assertManualMutationAllowed(workflow: WeeklyWorkflow): void {
+    if (workflow.status === 'running') {
+      throw new WorkflowMutationConflictError(
+        'Cannot modify workflow content while a stage is running; wait for the next approval checkpoint'
+      );
+    }
+  }
 
   private getNextMondayDate(): Date {
     const now = new Date();

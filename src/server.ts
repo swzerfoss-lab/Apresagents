@@ -11,6 +11,7 @@ import {
   ContentStrategyAgent,
   BrandVoiceAgent,
   WeeklyWorkflowOrchestrator,
+  WorkflowMutationConflictError,
 } from './agents/index.js';
 import { WorkflowScheduler } from './services/WorkflowScheduler.js';
 import { ContentStorage } from './storage/ContentStorage.js';
@@ -62,6 +63,19 @@ const contentStorage = new ContentStorage();
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
+
+function sendWorkflowMutationError(
+  error: unknown,
+  res: express.Response,
+  fallbackMessage: string
+): void {
+  if (error instanceof WorkflowMutationConflictError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
+
+  res.status(500).json({ error: fallbackMessage });
+}
 
 // Middleware
 app.use(cors({
@@ -803,7 +817,11 @@ app.post('/api/workflow/:id/approve-stage', async (req, res) => {
     });
   } catch (error) {
     console.error('Error approving stage:', error);
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to approve stage' });
+    sendWorkflowMutationError(
+      error,
+      res,
+      error instanceof Error ? error.message : 'Failed to approve stage'
+    );
   }
 });
 
@@ -826,7 +844,7 @@ app.put('/api/workflow/:workflowId/post/:postId', async (req, res) => {
     }
   } catch (error) {
     console.error('Error editing post:', error);
-    res.status(500).json({ error: 'Failed to edit post' });
+    sendWorkflowMutationError(error, res, 'Failed to edit post');
   }
 });
 
@@ -853,7 +871,7 @@ app.put('/api/workflow/:workflowId/calendar/:postId', async (req, res) => {
     }
   } catch (error) {
     console.error('Error editing calendar entry:', error);
-    res.status(500).json({ error: 'Failed to edit calendar entry' });
+    sendWorkflowMutationError(error, res, 'Failed to edit calendar entry');
   }
 });
 
@@ -879,7 +897,7 @@ app.post('/api/workflow/:workflowId/asset/:assetId/regenerate', async (req, res)
     }
   } catch (error) {
     console.error('Error regenerating asset:', error);
-    res.status(500).json({ error: 'Failed to regenerate asset' });
+    sendWorkflowMutationError(error, res, 'Failed to regenerate asset');
   }
 });
 
