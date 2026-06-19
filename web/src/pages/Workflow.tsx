@@ -260,7 +260,7 @@ export default function Workflow() {
       const res = await fetch(`/api/workflow/${workflowDetail.id}/approve-stage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ expectedStage: workflowDetail.currentStage }),
       });
       const data = await res.json();
       if (data.success) {

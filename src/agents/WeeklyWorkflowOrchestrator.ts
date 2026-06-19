@@ -157,7 +157,8 @@ export class WeeklyWorkflowOrchestrator {
    */
   async approveStageAndContinue(
     workflowId: string,
-    options?: {
+    options: {
+      expectedStage: WorkflowStage;
       skipVideoGeneration?: boolean;
       skipImageGeneration?: boolean;
     }
@@ -170,6 +171,11 @@ export class WeeklyWorkflowOrchestrator {
     if (!observedWorkflow.awaitingApproval) {
       throw new Error('Workflow is not awaiting approval');
     }
+    if (observedWorkflow.currentStage !== options.expectedStage) {
+      throw new WorkflowMutationConflictError(
+        `Workflow is awaiting approval for ${observedWorkflow.currentStage}, not ${options.expectedStage}`
+      );
+    }
     const observedStage = observedWorkflow.currentStage;
 
     return this.withWorkflowOperationLock(workflowId, async () => {
@@ -181,6 +187,12 @@ export class WeeklyWorkflowOrchestrator {
 
       if (!this.currentWorkflow.awaitingApproval) {
         throw new Error('Workflow is not awaiting approval');
+      }
+
+      if (this.currentWorkflow.currentStage !== options.expectedStage) {
+        throw new WorkflowMutationConflictError(
+          `Workflow is awaiting approval for ${this.currentWorkflow.currentStage}, not ${options.expectedStage}`
+        );
       }
 
       if (this.currentWorkflow.currentStage !== observedStage) {

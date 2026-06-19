@@ -247,8 +247,14 @@ describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
     testOrchestrator.executeCopywritingStage = vi.fn().mockResolvedValue(undefined);
 
     const approvals = await Promise.allSettled([
-      orchestrator.approveStageAndContinue('workflow-1', { skipImageGeneration: true }),
-      orchestrator.approveStageAndContinue('workflow-1', { skipImageGeneration: true }),
+      orchestrator.approveStageAndContinue('workflow-1', {
+        expectedStage: 'strategy',
+        skipImageGeneration: true,
+      }),
+      orchestrator.approveStageAndContinue('workflow-1', {
+        expectedStage: 'strategy',
+        skipImageGeneration: true,
+      }),
     ]);
 
     expect(approvals.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
@@ -258,5 +264,50 @@ describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
     expect(savedWorkflow?.currentStage).toBe('copywriting');
     expect(savedWorkflow?.status).toBe('awaiting-approval');
     expect(savedWorkflow?.stageApprovals).toHaveLength(1);
+  });
+
+  it('rejects a stale approval retry after the workflow advances to the next gate', async () => {
+    const workflow = createWorkflow({
+      currentStage: 'strategy',
+      status: 'awaiting-approval',
+      awaitingApproval: true,
+      strategy: {
+        weekNumber: 1,
+        year: 2026,
+        theme: 'Test theme',
+        goals: ['Create content'],
+        posts: [],
+      },
+      posts: [],
+      metrics: {
+        totalPosts: 0,
+        postsCompleted: 0,
+        imagesGenerated: 0,
+        videosGenerated: 0,
+      },
+    });
+    await storage.saveWorkflow(workflow);
+
+    const testOrchestrator = orchestrator as unknown as {
+      executeCopywritingStage: ReturnType<typeof vi.fn>;
+    };
+    testOrchestrator.executeCopywritingStage = vi.fn().mockResolvedValue(undefined);
+
+    await orchestrator.approveStageAndContinue('workflow-1', {
+      expectedStage: 'strategy',
+      skipImageGeneration: true,
+    });
+
+    await expect(
+      orchestrator.approveStageAndContinue('workflow-1', {
+        expectedStage: 'strategy',
+        skipImageGeneration: true,
+      })
+    ).rejects.toThrow('Workflow is awaiting approval for copywriting, not strategy');
+
+    const savedWorkflow = await storage.getWorkflow('workflow-1');
+    expect(savedWorkflow?.currentStage).toBe('copywriting');
+    expect(savedWorkflow?.status).toBe('awaiting-approval');
+    expect(savedWorkflow?.stageApprovals.map((approval) => approval.stage)).toEqual(['strategy']);
   });
 });

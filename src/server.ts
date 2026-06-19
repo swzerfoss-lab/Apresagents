@@ -16,7 +16,7 @@ import {
 import { WorkflowScheduler } from './services/WorkflowScheduler.js';
 import { ContentStorage } from './storage/ContentStorage.js';
 import { getBrandConfig, sampleProducts, validateConfig } from './config/index.js';
-import type { SocialPlatform, CampaignObjective } from './types/index.js';
+import type { SocialPlatform, CampaignObjective, WorkflowStage } from './types/index.js';
 import { generalLimiter, generationLimiter, workflowLimiter } from './middleware/rateLimit.js';
 import { requireAdminAuth } from './middleware/auth.js';
 import {
@@ -75,6 +75,18 @@ function sendWorkflowMutationError(
   }
 
   res.status(500).json({ error: fallbackMessage });
+}
+
+const workflowStages = new Set<WorkflowStage>([
+  'strategy',
+  'copywriting',
+  'image-generation',
+  'video-generation',
+  'assembly',
+]);
+
+function isWorkflowStage(value: unknown): value is WorkflowStage {
+  return typeof value === 'string' && workflowStages.has(value as WorkflowStage);
 }
 
 // Middleware
@@ -805,10 +817,15 @@ app.get('/api/workflow/ready-posts', async (_req, res) => {
  */
 app.post('/api/workflow/:id/approve-stage', async (req, res) => {
   try {
-    const { skipVideoGeneration, skipImageGeneration } = req.body;
+    const { skipVideoGeneration, skipImageGeneration, expectedStage } = req.body;
+    if (!isWorkflowStage(expectedStage)) {
+      res.status(400).json({ error: 'expectedStage is required' });
+      return;
+    }
+
     const workflow = await workflowOrchestrator.approveStageAndContinue(
       req.params.id,
-      { skipVideoGeneration, skipImageGeneration }
+      { expectedStage, skipVideoGeneration, skipImageGeneration }
     );
     res.json({
       success: true,

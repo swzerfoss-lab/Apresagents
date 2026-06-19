@@ -54,6 +54,7 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
     const orchestrator = createOrchestratorWithWorkflow(createWorkflow('copywriting'));
 
     const workflow = await orchestrator.approveStageAndContinue('workflow-1', {
+      expectedStage: 'copywriting',
       skipImageGeneration: true,
     });
 
@@ -68,6 +69,7 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
     const orchestrator = createOrchestratorWithWorkflow(createWorkflow('copywriting'));
 
     const workflow = await orchestrator.approveStageAndContinue('workflow-1', {
+      expectedStage: 'copywriting',
       skipImageGeneration: true,
       skipVideoGeneration: true,
     });
@@ -83,6 +85,7 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
     const orchestrator = createOrchestratorWithWorkflow(createWorkflow('image-generation'));
 
     const workflow = await orchestrator.approveStageAndContinue('workflow-1', {
+      expectedStage: 'image-generation',
       skipVideoGeneration: true,
     });
 
