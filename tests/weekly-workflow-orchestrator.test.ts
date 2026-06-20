@@ -112,6 +112,8 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
   });
 
   it('serializes overlapping workflow starts on a shared orchestrator instance', async () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
     const firstStageGate = createDeferred<void>();
     const firstStageStarted = createDeferred<void>();
@@ -152,5 +154,8 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
 
     expect(testOrchestrator.executeStrategyStage).toHaveBeenCalledTimes(2);
     expect(new Set(startedWorkflowIds).size).toBe(2);
+
+    consoleLog.mockRestore();
+    consoleError.mockRestore();
   });
 });
