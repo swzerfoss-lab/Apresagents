@@ -114,6 +114,7 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
   it('serializes overlapping workflow starts on a shared orchestrator instance', async () => {
     const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
     const firstStageGate = createDeferred<void>();
+    const firstStageStarted = createDeferred<void>();
     const startedWorkflowIds: string[] = [];
     let strategyCallCount = 0;
 
@@ -131,12 +132,13 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
       strategyCallCount += 1;
       startedWorkflowIds.push(testOrchestrator.currentWorkflow?.id || '');
       if (strategyCallCount === 1) {
+        firstStageStarted.resolve();
         await firstStageGate.promise;
       }
     });
 
     const firstRun = orchestrator.executeWeeklyWorkflow(new Date('2026-05-04T00:00:00.000Z'));
-    await Promise.resolve();
+    await firstStageStarted.promise;
     expect(testOrchestrator.executeStrategyStage).toHaveBeenCalledTimes(1);
 
     const secondRun = orchestrator.executeWeeklyWorkflow(new Date('2026-05-11T00:00:00.000Z'));
