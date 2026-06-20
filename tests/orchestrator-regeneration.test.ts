@@ -80,6 +80,21 @@ function createWorkflow(overrides: Partial<WeeklyWorkflow> = {}): WeeklyWorkflow
   };
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
   let tempDir: string;
   let storage: ContentStorage;
@@ -217,6 +232,78 @@ describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
 
     const savedWorkflow = await storage.getWorkflow('workflow-1');
     expect(savedWorkflow?.posts[0].caption).toBe('Original caption');
+  });
+
+  it('does not let an in-flight workflow mutation overwrite a post status update', async () => {
+    const workflow = createWorkflow({
+      status: 'awaiting-approval',
+      currentStage: 'image-generation',
+      awaitingApproval: true,
+    });
+    await storage.saveWorkflow(workflow);
+
+    const generateResult = createDeferred<{
+      success: true;
+      data: {
+        filePath: string;
+        prompt: string;
+      };
+    }>();
+    const generateStarted = createDeferred<void>();
+    const testOrchestrator = orchestrator as unknown as {
+      visualAgent: { generateImage: ReturnType<typeof vi.fn> };
+    };
+    testOrchestrator.visualAgent = {
+      generateImage: vi.fn(() => {
+        generateStarted.resolve();
+        return generateResult.promise;
+      }),
+    };
+
+    const regeneration = orchestrator.regenerateAsset('workflow-1', {
+      assetId: 'asset-1',
+      postId: 'post-1',
+      newPrompt: 'replacement prompt',
+      type: 'image',
+    });
+    await generateStarted.promise;
+
+    let statusUpdateSettled = false;
+    const approvedAt = new Date('2026-01-02T00:00:00.000Z');
+    const statusUpdate = orchestrator
+      .updatePostStatus('post-1', 'approved', approvedAt)
+      .then((result) => {
+        statusUpdateSettled = true;
+        return result;
+      });
+
+    await Promise.resolve();
+    expect(statusUpdateSettled).toBe(false);
+
+    generateResult.resolve({
+      success: true,
+      data: {
+        filePath: path.join(tempDir, 'assets', 'replacement.png'),
+        prompt: 'provider replacement prompt',
+      },
+    });
+
+    await expect(regeneration).resolves.toMatchObject({
+      prompt: 'replacement prompt',
+      url: '/api/assets/images/replacement.png',
+      status: 'completed',
+    });
+    await expect(statusUpdate).resolves.toBe(true);
+
+    const savedWorkflow = await storage.getWorkflow('workflow-1');
+    const savedPost = savedWorkflow?.posts[0];
+    expect(savedPost?.status).toBe('approved');
+    expect(savedPost?.approvedAt).toEqual(approvedAt);
+    expect(savedPost?.images[0]).toMatchObject({
+      prompt: 'replacement prompt',
+      url: '/api/assets/images/replacement.png',
+      status: 'completed',
+    });
   });
 
   it('does not let duplicate stage approvals advance multiple stages', async () => {

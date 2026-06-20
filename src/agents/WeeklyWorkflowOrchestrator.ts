@@ -49,6 +49,7 @@ export class WorkflowMutationConflictError extends Error {
 export class WeeklyWorkflowOrchestrator {
   private static workflowOperationQueues = new Map<string, Promise<void>>();
 
+  private workflowExecutionQueue: Promise<void> = Promise.resolve();
   private strategyAgent: ContentStrategyAgent;
   private copywritingAgent: CopywritingAgent;
   private visualAgent: VisualContentAgent;
@@ -90,6 +91,20 @@ export class WeeklyWorkflowOrchestrator {
    * Execute the complete weekly workflow
    */
   async executeWeeklyWorkflow(
+    weekStartDate?: Date,
+    options?: {
+      platforms?: SocialPlatform[];
+      postsPerPlatform?: number;
+      skipVideoGeneration?: boolean;
+      skipImageGeneration?: boolean;
+    }
+  ): Promise<WeeklyWorkflow> {
+    return this.withWorkflowExecutionLock(() =>
+      this.executeWeeklyWorkflowUnlocked(weekStartDate, options)
+    );
+  }
+
+  private async executeWeeklyWorkflowUnlocked(
     weekStartDate?: Date,
     options?: {
       platforms?: SocialPlatform[];
@@ -367,6 +382,49 @@ export class WeeklyWorkflowOrchestrator {
       }
 
       return post;
+    });
+  }
+
+  /**
+   * Update post publishing status through the workflow operation queue.
+   */
+  async updatePostStatus(
+    postId: string,
+    status: ReadyPost['status'],
+    timestamp?: Date
+  ): Promise<boolean> {
+    const workflow = await this.findWorkflowContainingPost(postId);
+    if (!workflow) {
+      return false;
+    }
+    this.assertManualMutationAllowed(workflow);
+
+    return this.withWorkflowOperationLock(workflow.id, async () => {
+      const lockedWorkflow = await this.storage.getWorkflow(workflow.id);
+      if (!lockedWorkflow) {
+        return false;
+      }
+      this.assertManualMutationAllowed(lockedWorkflow);
+
+      const post = lockedWorkflow.posts.find((candidate) => candidate.id === postId);
+      if (!post) {
+        return false;
+      }
+
+      post.status = status;
+      if (status === 'approved') {
+        post.approvedAt = timestamp || new Date();
+      } else if (status === 'published') {
+        post.publishedAt = timestamp || new Date();
+      }
+
+      await this.storage.saveWorkflow(lockedWorkflow);
+
+      if (this.currentWorkflow?.id === lockedWorkflow.id) {
+        this.currentWorkflow = lockedWorkflow;
+      }
+
+      return true;
     });
   }
 
@@ -879,6 +937,23 @@ export class WeeklyWorkflowOrchestrator {
     }
   }
 
+  private async withWorkflowExecutionLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.workflowExecutionQueue;
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.workflowExecutionQueue = previous.catch(() => undefined).then(() => current);
+
+    await previous.catch(() => undefined);
+
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   private assertManualMutationAllowed(workflow: WeeklyWorkflow): void {
     if (workflow.status === 'running') {
       throw new WorkflowMutationConflictError(
@@ -898,6 +973,11 @@ export class WeeklyWorkflowOrchestrator {
     }
 
     return null;
+  }
+
+  private async findWorkflowContainingPost(postId: string): Promise<WeeklyWorkflow | null> {
+    const workflows = await this.storage.getAllWorkflows();
+    return workflows.find((workflow) => workflow.posts.some((post) => post.id === postId)) || null;
   }
 
   private getNextMondayDate(): Date {

@@ -34,6 +34,21 @@ function createWorkflow(currentStage: WorkflowStage): WeeklyWorkflow {
   };
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function createOrchestratorWithWorkflow(workflow: WeeklyWorkflow): WeeklyWorkflowOrchestrator {
   const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
   const storage = {
@@ -94,5 +109,46 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
     expect(workflow.awaitingApproval).toBe(true);
     expect(workflow.errors).toEqual([]);
     expect(workflow.stageApprovals.map((approval) => approval.stage)).toEqual(['image-generation']);
+  });
+
+  it('serializes overlapping workflow starts on a shared orchestrator instance', async () => {
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const firstStageGate = createDeferred<void>();
+    const startedWorkflowIds: string[] = [];
+    let strategyCallCount = 0;
+
+    const testOrchestrator = orchestrator as unknown as {
+      currentWorkflow: WeeklyWorkflow | null;
+      executeStrategyStage: ReturnType<typeof vi.fn>;
+      storage: {
+        saveWorkflow: ReturnType<typeof vi.fn>;
+      };
+    };
+    testOrchestrator.storage = {
+      saveWorkflow: vi.fn().mockResolvedValue(undefined),
+    };
+    testOrchestrator.executeStrategyStage = vi.fn(async () => {
+      strategyCallCount += 1;
+      startedWorkflowIds.push(testOrchestrator.currentWorkflow?.id || '');
+      if (strategyCallCount === 1) {
+        await firstStageGate.promise;
+      }
+    });
+
+    const firstRun = orchestrator.executeWeeklyWorkflow(new Date('2026-05-04T00:00:00.000Z'));
+    await Promise.resolve();
+    expect(testOrchestrator.executeStrategyStage).toHaveBeenCalledTimes(1);
+
+    const secondRun = orchestrator.executeWeeklyWorkflow(new Date('2026-05-11T00:00:00.000Z'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(testOrchestrator.executeStrategyStage).toHaveBeenCalledTimes(1);
+
+    firstStageGate.resolve();
+    await firstRun;
+    await secondRun;
+
+    expect(testOrchestrator.executeStrategyStage).toHaveBeenCalledTimes(2);
+    expect(new Set(startedWorkflowIds).size).toBe(2);
   });
 });

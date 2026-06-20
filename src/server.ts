@@ -24,6 +24,7 @@ import {
   WorkflowTriggerSchema,
   ContentGenerateSchema,
   ImageRenderSchema,
+  PostStatusSchema,
 } from './middleware/validation.js';
 
 // Get directory name for ES modules
@@ -756,10 +757,10 @@ app.get('/api/workflow/posts/status/:status', async (req, res) => {
 /**
  * Update post status (approve, etc.)
  */
-app.post('/api/workflow/posts/:id/status', async (req, res) => {
+app.post('/api/workflow/posts/:id/status', validate(PostStatusSchema), async (req, res) => {
   try {
     const { status } = req.body;
-    const success = await contentStorage.updatePostStatus(req.params.id, status);
+    const success = await workflowOrchestrator.updatePostStatus(req.params.id, status);
     if (success) {
       res.json({ success: true, message: `Post ${status}` });
     } else {
@@ -767,7 +768,11 @@ app.post('/api/workflow/posts/:id/status', async (req, res) => {
     }
   } catch (error) {
     console.error('Error updating post:', error);
-    res.status(500).json({ error: 'Failed to update post' });
+    sendWorkflowMutationError(
+      error,
+      res,
+      error instanceof Error ? error.message : 'Failed to update post'
+    );
   }
 });
 
