@@ -185,6 +185,79 @@ describe('ContentStorage', () => {
     ]);
   });
 
+  it('rolls back interrupted media stages to the previous approval checkpoint', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-interrupted-media');
+    const recoveryTime = new Date('2026-05-01T12:00:00.000Z');
+
+    workflow.currentStage = 'image-generation';
+    workflow.posts = [createPost('post-1', workflow.id)];
+    workflow.posts[0].images = [
+      {
+        id: 'image-1',
+        postId: 'post-1',
+        type: 'image',
+        prompt: 'Generate a product photo',
+        status: 'generating',
+      },
+    ];
+    workflow.stageApprovals = [
+      { stage: 'strategy', approved: true, approvedAt: new Date('2026-05-01T10:00:00.000Z') },
+      { stage: 'copywriting', approved: true, approvedAt: new Date('2026-05-01T11:00:00.000Z') },
+    ];
+
+    await storage.saveWorkflow(workflow);
+
+    const recovered = await storage.recoverInterruptedWorkflows(recoveryTime);
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(recovered).toHaveLength(1);
+    expect(loaded).toMatchObject({
+      status: 'awaiting-approval',
+      currentStage: 'copywriting',
+      awaitingApproval: true,
+    });
+    expect(loaded?.stageApprovals.map((approval) => approval.stage)).toEqual(['strategy']);
+    expect(loaded?.posts[0].images[0].status).toBe('pending');
+    expect(loaded?.errors).toEqual([
+      {
+        stage: 'image-generation',
+        message:
+          'Workflow was interrupted while image-generation was running; rolled back to copywriting approval so the stage can be retried.',
+        timestamp: recoveryTime,
+        recoverable: true,
+      },
+    ]);
+  });
+
+  it('clears partial copywriting output before rolling back for retry', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-interrupted-copywriting');
+
+    workflow.currentStage = 'copywriting';
+    workflow.posts = [createPost('post-1', workflow.id), createPost('post-2', workflow.id)];
+    workflow.metrics.postsCompleted = workflow.posts.length;
+    workflow.stageApprovals = [
+      { stage: 'strategy', approved: true, approvedAt: new Date('2026-05-01T10:00:00.000Z') },
+    ];
+
+    await storage.saveWorkflow(workflow);
+
+    await storage.recoverInterruptedWorkflows(new Date('2026-05-01T12:00:00.000Z'));
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(loaded).toMatchObject({
+      status: 'awaiting-approval',
+      currentStage: 'strategy',
+      awaitingApproval: true,
+    });
+    expect(loaded?.posts).toEqual([]);
+    expect(loaded?.metrics.postsCompleted).toBe(0);
+    expect(loaded?.stageApprovals).toEqual([]);
+  });
+
   it('deserializes nested workflow dates after loading from storage', async () => {
     const storageDir = await createStorageDir();
     const storage = new ContentStorage(storageDir);

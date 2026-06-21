@@ -336,6 +336,74 @@ export class ContentStorage {
     };
   }
 
+  /**
+   * Recover workflows left in a persisted running state by a process restart.
+   */
+  async recoverInterruptedWorkflows(now: Date = new Date()): Promise<WeeklyWorkflow[]> {
+    let recoveredWorkflows: WeeklyWorkflow[] = [];
+
+    await this.withWorkflowWriteLock(async () => {
+      const data = await this.loadWorkflowsData();
+      let changed = false;
+
+      for (const workflow of data.workflows) {
+        if (workflow.status !== 'running') {
+          continue;
+        }
+
+        const interruptedStage = workflow.currentStage;
+        const retryApprovalStage = this.getRetryApprovalStage(interruptedStage);
+        workflow.errors = workflow.errors || [];
+        workflow.stageApprovals = workflow.stageApprovals || [];
+
+        this.resetGeneratingAssets(workflow);
+        workflow.errors.push({
+          stage: interruptedStage,
+          message: retryApprovalStage
+            ? `Workflow was interrupted while ${interruptedStage} was running; rolled back to ${retryApprovalStage} approval so the stage can be retried.`
+            : `Workflow was interrupted while ${interruptedStage} was running; marked failed so a new workflow can be started.`,
+          timestamp: now,
+          recoverable: Boolean(retryApprovalStage),
+        });
+
+        if (retryApprovalStage) {
+          workflow.currentStage = retryApprovalStage;
+          workflow.status = 'awaiting-approval';
+          workflow.awaitingApproval = true;
+          workflow.stageApprovals = workflow.stageApprovals.filter(
+            (approval) => approval.stage !== retryApprovalStage
+          );
+
+          if (interruptedStage === 'copywriting') {
+            workflow.posts = [];
+            workflow.metrics.postsCompleted = 0;
+            workflow.metrics.imagesGenerated = 0;
+            workflow.metrics.videosGenerated = 0;
+          }
+        } else {
+          workflow.status = 'failed';
+          workflow.awaitingApproval = false;
+        }
+
+        recoveredWorkflows.push(workflow);
+        changed = true;
+      }
+
+      if (changed) {
+        await this.writeWorkflowsData(data);
+      }
+    });
+
+    for (const workflow of recoveredWorkflows) {
+      for (const post of workflow.posts) {
+        await this.savePost(post);
+      }
+    }
+
+    recoveredWorkflows = recoveredWorkflows.map(this.deserializeWorkflow);
+    return recoveredWorkflows;
+  }
+
   // Private helper methods
 
   private async loadWorkflowsData(): Promise<{ workflows: WeeklyWorkflow[] }> {
@@ -414,6 +482,31 @@ export class ContentStorage {
       'code' in error &&
       (error as { code?: string }).code === code
     );
+  }
+
+  private getRetryApprovalStage(stage: WeeklyWorkflow['currentStage']): WeeklyWorkflow['currentStage'] | null {
+    switch (stage) {
+      case 'copywriting':
+        return 'strategy';
+      case 'image-generation':
+        return 'copywriting';
+      case 'video-generation':
+        return 'image-generation';
+      case 'assembly':
+        return 'video-generation';
+      case 'strategy':
+        return null;
+    }
+  }
+
+  private resetGeneratingAssets(workflow: WeeklyWorkflow): void {
+    for (const post of workflow.posts) {
+      for (const asset of [...post.images, ...post.videos]) {
+        if (asset.status === 'generating') {
+          asset.status = 'pending';
+        }
+      }
+    }
   }
 
   private deserializeWorkflow = (workflow: WeeklyWorkflow): WeeklyWorkflow => {

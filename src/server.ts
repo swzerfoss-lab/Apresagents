@@ -90,6 +90,19 @@ function isWorkflowStage(value: unknown): value is WorkflowStage {
   return typeof value === 'string' && workflowStages.has(value as WorkflowStage);
 }
 
+async function recoverInterruptedWorkflowState(): Promise<void> {
+  try {
+    const recovered = await contentStorage.recoverInterruptedWorkflows();
+    if (recovered.length > 0) {
+      console.warn(
+        `Recovered ${recovered.length} workflow(s) interrupted during a previous process run`
+      );
+    }
+  } catch (error) {
+    console.error('Failed to recover interrupted workflows:', error);
+  }
+}
+
 // Middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
@@ -1018,14 +1031,17 @@ app.get('*', (_req, res) => {
 });
 
 // Start server
-app.listen(PORT, HOST, () => {
-  const networkInterfaces = Object.values(os.networkInterfaces())
-    .flat()
-    .filter((iface): iface is os.NetworkInterfaceInfo =>
-      iface !== undefined && iface.family === 'IPv4' && !iface.internal)
-    .map((iface) => iface.address);
+async function startServer(): Promise<void> {
+  await recoverInterruptedWorkflowState();
 
-  console.log(`
+  app.listen(PORT, HOST, () => {
+    const networkInterfaces = Object.values(os.networkInterfaces())
+      .flat()
+      .filter((iface): iface is os.NetworkInterfaceInfo =>
+        iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+      .map((iface) => iface.address);
+
+    console.log(`
   ╔══════════════════════════════════════════════════════════╗
   ║                                                          ║
   ║   🏔️  Apres Feels Content Portal                         ║
@@ -1038,6 +1054,11 @@ app.listen(PORT, HOST, () => {
   ║                                                          ║
   ╚══════════════════════════════════════════════════════════╝
   `);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('Failed to start server:', error);
 });
 
 export default app;

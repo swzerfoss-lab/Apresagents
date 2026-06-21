@@ -357,7 +357,7 @@ export default function Workflow() {
     });
   };
 
-  const getStageStatus = (stageId: string): 'pending' | 'current' | 'completed' | 'awaiting' => {
+  const getStageStatus = (stageId: string): 'pending' | 'current' | 'completed' | 'awaiting' | 'failed' => {
     if (!workflowDetail) return 'pending';
 
     const stageIndex = STAGES.findIndex(s => s.id === stageId);
@@ -365,6 +365,7 @@ export default function Workflow() {
 
     if (stageIndex < currentIndex) return 'completed';
     if (stageIndex === currentIndex) {
+      if (workflowDetail.status === 'failed') return 'failed';
       return workflowDetail.awaitingApproval ? 'awaiting' : 'current';
     }
     return 'pending';
@@ -532,11 +533,13 @@ export default function Workflow() {
                         <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
                           status === 'completed' ? 'bg-green-100 text-green-700' :
                           status === 'awaiting' ? 'bg-yellow-100 text-yellow-700' :
+                          status === 'failed' ? 'bg-red-100 text-red-700' :
                           status === 'current' ? 'bg-blue-100 text-blue-700' :
                           'bg-gray-100 text-gray-400'
                         }`}>
                           {status === 'completed' ? <CheckCircle className="w-4 h-4" /> :
                            status === 'awaiting' ? <AlertCircle className="w-4 h-4" /> :
+                           status === 'failed' ? <AlertCircle className="w-4 h-4" /> :
                            status === 'current' ? <Loader className="w-4 h-4 animate-spin" /> :
                            <stage.icon className="w-4 h-4" />}
                           <span className="text-sm font-medium">{stage.name}</span>
@@ -571,6 +574,7 @@ export default function Workflow() {
                           <div className={`p-2 rounded-lg ${
                             status === 'completed' ? 'bg-green-100 text-green-600' :
                             status === 'awaiting' ? 'bg-yellow-100 text-yellow-600' :
+                            status === 'failed' ? 'bg-red-100 text-red-600' :
                             status === 'current' ? 'bg-blue-100 text-blue-600' :
                             'bg-gray-100 text-gray-400'
                           }`}>
