@@ -337,7 +337,7 @@ export class ContentStorage {
   }
 
   /**
-   * Recover workflows left in a persisted running state by a process restart.
+   * Recover workflows left in a persisted in-between state by a process restart.
    */
   async recoverInterruptedWorkflows(now: Date = new Date()): Promise<WeeklyWorkflow[]> {
     let recoveredWorkflows: WeeklyWorkflow[] = [];
@@ -347,34 +347,31 @@ export class ContentStorage {
       let changed = false;
 
       for (const workflow of data.workflows) {
-        if (workflow.status !== 'running') {
+        const recoveryPlan = this.getRecoveryPlan(workflow);
+        if (!recoveryPlan) {
           continue;
         }
 
-        const interruptedStage = workflow.currentStage;
-        const retryApprovalStage = this.getRetryApprovalStage(interruptedStage);
         workflow.errors = workflow.errors || [];
         workflow.stageApprovals = workflow.stageApprovals || [];
 
         this.resetGeneratingAssets(workflow);
         workflow.errors.push({
-          stage: interruptedStage,
-          message: retryApprovalStage
-            ? `Workflow was interrupted while ${interruptedStage} was running; rolled back to ${retryApprovalStage} approval so the stage can be retried.`
-            : `Workflow was interrupted while ${interruptedStage} was running; marked failed so a new workflow can be started.`,
+          stage: recoveryPlan.interruptedStage,
+          message: recoveryPlan.message,
           timestamp: now,
-          recoverable: Boolean(retryApprovalStage),
+          recoverable: recoveryPlan.recoverable,
         });
 
-        if (retryApprovalStage) {
-          workflow.currentStage = retryApprovalStage;
+        if (recoveryPlan.retryApprovalStage) {
+          workflow.currentStage = recoveryPlan.retryApprovalStage;
           workflow.status = 'awaiting-approval';
           workflow.awaitingApproval = true;
           workflow.stageApprovals = workflow.stageApprovals.filter(
-            (approval) => approval.stage !== retryApprovalStage
+            (approval) => approval.stage !== recoveryPlan.retryApprovalStage
           );
 
-          if (interruptedStage === 'copywriting') {
+          if (recoveryPlan.resetCopywritingOutput) {
             workflow.posts = [];
             workflow.metrics.postsCompleted = 0;
             workflow.metrics.imagesGenerated = 0;
@@ -484,6 +481,44 @@ export class ContentStorage {
     );
   }
 
+  private getRecoveryPlan(workflow: WeeklyWorkflow): {
+    interruptedStage: WeeklyWorkflow['currentStage'];
+    retryApprovalStage: WeeklyWorkflow['currentStage'] | null;
+    message: string;
+    recoverable: boolean;
+    resetCopywritingOutput: boolean;
+  } | null {
+    if (workflow.status === 'running') {
+      const interruptedStage = workflow.currentStage;
+      const retryApprovalStage = this.getRetryApprovalStage(interruptedStage);
+
+      return {
+        interruptedStage,
+        retryApprovalStage,
+        message: retryApprovalStage
+          ? `Workflow was interrupted while ${interruptedStage} was running; rolled back to ${retryApprovalStage} approval so the stage can be retried.`
+          : `Workflow was interrupted while ${interruptedStage} was running; marked failed so a new workflow can be started.`,
+        recoverable: Boolean(retryApprovalStage),
+        resetCopywritingOutput: interruptedStage === 'copywriting',
+      };
+    }
+
+    if (!workflow.awaitingApproval) {
+      const approvalStage = this.getInterruptedApprovalHandoffStage(workflow.status);
+      if (approvalStage) {
+        return {
+          interruptedStage: approvalStage,
+          retryApprovalStage: approvalStage,
+          message: `Workflow was interrupted after ${approvalStage} approval before the next stage started; rolled back to ${approvalStage} approval so the stage transition can be retried.`,
+          recoverable: true,
+          resetCopywritingOutput: false,
+        };
+      }
+    }
+
+    return null;
+  }
+
   private getRetryApprovalStage(stage: WeeklyWorkflow['currentStage']): WeeklyWorkflow['currentStage'] | null {
     switch (stage) {
       case 'copywriting':
@@ -495,6 +530,25 @@ export class ContentStorage {
       case 'assembly':
         return 'video-generation';
       case 'strategy':
+        return null;
+    }
+  }
+
+  private getInterruptedApprovalHandoffStage(
+    status: WeeklyWorkflow['status']
+  ): WeeklyWorkflow['currentStage'] | null {
+    switch (status) {
+      case 'strategy-complete':
+        return 'strategy';
+      case 'copywriting-complete':
+        return 'copywriting';
+      case 'images-complete':
+        return 'image-generation';
+      case 'videos-complete':
+        return 'video-generation';
+      case 'assembly-complete':
+        return 'assembly';
+      default:
         return null;
     }
   }

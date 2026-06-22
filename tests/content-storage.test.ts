@@ -258,6 +258,93 @@ describe('ContentStorage', () => {
     expect(loaded?.stageApprovals).toEqual([]);
   });
 
+  it('recovers approval handoffs interrupted before the next stage starts', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const recoveryTime = new Date('2026-05-01T12:00:00.000Z');
+    const cases: Array<{
+      id: string;
+      status: WeeklyWorkflow['status'];
+      stage: WeeklyWorkflow['currentStage'];
+      approvedStages: WeeklyWorkflow['currentStage'][];
+      remainingStages: WeeklyWorkflow['currentStage'][];
+    }> = [
+      {
+        id: 'workflow-strategy-handoff',
+        status: 'strategy-complete',
+        stage: 'strategy',
+        approvedStages: ['strategy'],
+        remainingStages: [],
+      },
+      {
+        id: 'workflow-copywriting-handoff',
+        status: 'copywriting-complete',
+        stage: 'copywriting',
+        approvedStages: ['strategy', 'copywriting'],
+        remainingStages: ['strategy'],
+      },
+      {
+        id: 'workflow-images-handoff',
+        status: 'images-complete',
+        stage: 'image-generation',
+        approvedStages: ['strategy', 'copywriting', 'image-generation'],
+        remainingStages: ['strategy', 'copywriting'],
+      },
+      {
+        id: 'workflow-videos-handoff',
+        status: 'videos-complete',
+        stage: 'video-generation',
+        approvedStages: ['strategy', 'copywriting', 'image-generation', 'video-generation'],
+        remainingStages: ['strategy', 'copywriting', 'image-generation'],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const workflow = createWorkflow(testCase.id);
+      workflow.status = testCase.status;
+      workflow.currentStage = testCase.stage;
+      workflow.awaitingApproval = false;
+      workflow.posts = [createPost(`${testCase.id}-post`, workflow.id)];
+      workflow.metrics.totalPosts = workflow.posts.length;
+      workflow.metrics.postsCompleted = workflow.posts.length;
+      workflow.stageApprovals = testCase.approvedStages.map((stage, index) => ({
+        stage,
+        approved: true,
+        approvedAt: new Date(`2026-05-01T10:0${index}:00.000Z`),
+      }));
+
+      await storage.saveWorkflow(workflow);
+    }
+
+    const recovered = await storage.recoverInterruptedWorkflows(recoveryTime);
+
+    expect(recovered.map((workflow) => workflow.id).sort()).toEqual(
+      cases.map((testCase) => testCase.id).sort()
+    );
+
+    for (const testCase of cases) {
+      const loaded = await storage.getWorkflow(testCase.id);
+
+      expect(loaded).toMatchObject({
+        status: 'awaiting-approval',
+        currentStage: testCase.stage,
+        awaitingApproval: true,
+      });
+      expect(loaded?.stageApprovals.map((approval) => approval.stage)).toEqual(
+        testCase.remainingStages
+      );
+      expect(loaded?.posts).toHaveLength(1);
+      expect(loaded?.errors).toEqual([
+        {
+          stage: testCase.stage,
+          message: `Workflow was interrupted after ${testCase.stage} approval before the next stage started; rolled back to ${testCase.stage} approval so the stage transition can be retried.`,
+          timestamp: recoveryTime,
+          recoverable: true,
+        },
+      ]);
+    }
+  });
+
   it('deserializes nested workflow dates after loading from storage', async () => {
     const storageDir = await createStorageDir();
     const storage = new ContentStorage(storageDir);

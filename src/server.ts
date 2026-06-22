@@ -100,6 +100,7 @@ async function recoverInterruptedWorkflowState(): Promise<void> {
     }
   } catch (error) {
     console.error('Failed to recover interrupted workflows:', error);
+    throw error;
   }
 }
 
