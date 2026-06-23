@@ -178,6 +178,19 @@ export class WeeklyWorkflowOrchestrator {
       skipImageGeneration?: boolean;
     }
   ): Promise<WeeklyWorkflow> {
+    return this.withWorkflowExecutionLock(() =>
+      this.approveStageAndContinueUnlocked(workflowId, options)
+    );
+  }
+
+  private async approveStageAndContinueUnlocked(
+    workflowId: string,
+    options: {
+      expectedStage: WorkflowStage;
+      skipVideoGeneration?: boolean;
+      skipImageGeneration?: boolean;
+    }
+  ): Promise<WeeklyWorkflow> {
     const observedWorkflow =
       await this.getWorkflowForOperation(workflowId);
     if (!observedWorkflow) {

@@ -158,4 +158,67 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
     consoleLog.mockRestore();
     consoleError.mockRestore();
   });
+
+  it('serializes overlapping approvals for different workflows on a shared orchestrator instance', async () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const firstStageGate = createDeferred<void>();
+    const firstStageStarted = createDeferred<void>();
+    const workflows = new Map<string, WeeklyWorkflow>([
+      ['workflow-1', { ...createWorkflow('strategy'), id: 'workflow-1' }],
+      ['workflow-2', { ...createWorkflow('strategy'), id: 'workflow-2' }],
+    ]);
+    const copywritingWorkflowIds: string[] = [];
+    let copywritingCallCount = 0;
+
+    const testOrchestrator = orchestrator as unknown as {
+      currentWorkflow: WeeklyWorkflow | null;
+      executeCopywritingStage: ReturnType<typeof vi.fn>;
+      storage: {
+        getWorkflow: ReturnType<typeof vi.fn>;
+        saveWorkflow: ReturnType<typeof vi.fn>;
+      };
+    };
+    testOrchestrator.currentWorkflow = null;
+    testOrchestrator.storage = {
+      getWorkflow: vi.fn(async (id: string) => workflows.get(id) || null),
+      saveWorkflow: vi.fn(async (workflow: WeeklyWorkflow) => {
+        workflows.set(workflow.id, workflow);
+      }),
+    };
+    testOrchestrator.executeCopywritingStage = vi.fn(async () => {
+      copywritingCallCount += 1;
+      copywritingWorkflowIds.push(testOrchestrator.currentWorkflow?.id || '');
+      if (copywritingCallCount === 1) {
+        firstStageStarted.resolve();
+        await firstStageGate.promise;
+      }
+    });
+
+    const firstApproval = orchestrator.approveStageAndContinue('workflow-1', {
+      expectedStage: 'strategy',
+    });
+    await firstStageStarted.promise;
+    expect(testOrchestrator.executeCopywritingStage).toHaveBeenCalledTimes(1);
+
+    const secondApproval = orchestrator.approveStageAndContinue('workflow-2', {
+      expectedStage: 'strategy',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(testOrchestrator.executeCopywritingStage).toHaveBeenCalledTimes(1);
+
+    firstStageGate.resolve();
+    const [firstWorkflow, secondWorkflow] = await Promise.all([firstApproval, secondApproval]);
+
+    expect(copywritingWorkflowIds).toEqual(['workflow-1', 'workflow-2']);
+    expect(firstWorkflow.id).toBe('workflow-1');
+    expect(secondWorkflow.id).toBe('workflow-2');
+    expect(firstWorkflow.currentStage).toBe('copywriting');
+    expect(secondWorkflow.currentStage).toBe('copywriting');
+
+    consoleLog.mockRestore();
+    consoleError.mockRestore();
+  });
 });
