@@ -89,7 +89,9 @@ export class ContentStorage {
    */
   async getAllWorkflows(): Promise<WeeklyWorkflow[]> {
     const data = await this.loadWorkflowsData();
-    return data.workflows.map(this.deserializeWorkflow);
+    return data.workflows
+      .map(this.deserializeWorkflow)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
   /**
@@ -348,14 +350,18 @@ export class ContentStorage {
 
       for (const workflow of data.workflows) {
         const recoveryPlan = this.getRecoveryPlan(workflow);
+        const resetAssets = this.resetGeneratingAssets(workflow);
         if (!recoveryPlan) {
+          if (resetAssets) {
+            recoveredWorkflows.push(workflow);
+            changed = true;
+          }
           continue;
         }
 
         workflow.errors = workflow.errors || [];
         workflow.stageApprovals = workflow.stageApprovals || [];
 
-        this.resetGeneratingAssets(workflow);
         workflow.errors.push({
           stage: recoveryPlan.interruptedStage,
           message: recoveryPlan.message,
@@ -553,14 +559,19 @@ export class ContentStorage {
     }
   }
 
-  private resetGeneratingAssets(workflow: WeeklyWorkflow): void {
+  private resetGeneratingAssets(workflow: WeeklyWorkflow): boolean {
+    let reset = false;
+
     for (const post of workflow.posts) {
       for (const asset of [...post.images, ...post.videos]) {
         if (asset.status === 'generating') {
           asset.status = 'pending';
+          reset = true;
         }
       }
     }
+
+    return reset;
   }
 
   private deserializeWorkflow = (workflow: WeeklyWorkflow): WeeklyWorkflow => {

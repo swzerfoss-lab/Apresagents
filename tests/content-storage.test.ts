@@ -152,6 +152,25 @@ describe('ContentStorage', () => {
     expect(workflows.map((workflow) => workflow.id).sort()).toEqual(['workflow-a', 'workflow-b']);
   });
 
+  it('returns workflows newest first so callers select the latest workflow', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const olderWorkflow = createWorkflow('older-workflow');
+    const newerWorkflow = createWorkflow('newer-workflow');
+    olderWorkflow.createdAt = new Date('2026-04-30T00:00:00.000Z');
+    newerWorkflow.createdAt = new Date('2026-05-01T00:00:00.000Z');
+
+    await storage.saveWorkflow(olderWorkflow);
+    await storage.saveWorkflow(newerWorkflow);
+
+    const workflows = await storage.getAllWorkflows();
+
+    expect(workflows.map((workflow) => workflow.id)).toEqual([
+      'newer-workflow',
+      'older-workflow',
+    ]);
+  });
+
   it('preserves concurrent status updates for different posts in the same workflow', async () => {
     const storageDir = await createStorageDir();
     const storage = new ContentStorage(storageDir);
@@ -229,6 +248,39 @@ describe('ContentStorage', () => {
         recoverable: true,
       },
     ]);
+  });
+
+  it('resets assets left generating by an interrupted manual regeneration', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-interrupted-regeneration');
+    workflow.status = 'awaiting-approval';
+    workflow.currentStage = 'image-generation';
+    workflow.awaitingApproval = true;
+    workflow.posts = [createPost('post-1', workflow.id)];
+    workflow.posts[0].images = [
+      {
+        id: 'image-1',
+        postId: 'post-1',
+        type: 'image',
+        prompt: 'Regenerate this product photo',
+        status: 'generating',
+      },
+    ];
+
+    await storage.saveWorkflow(workflow);
+
+    const recovered = await storage.recoverInterruptedWorkflows(new Date('2026-05-01T12:00:00.000Z'));
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(recovered.map((recoveredWorkflow) => recoveredWorkflow.id)).toEqual([workflow.id]);
+    expect(loaded).toMatchObject({
+      status: 'awaiting-approval',
+      currentStage: 'image-generation',
+      awaitingApproval: true,
+    });
+    expect(loaded?.posts[0].images[0].status).toBe('pending');
+    expect(loaded?.errors).toEqual([]);
   });
 
   it('clears partial copywriting output before rolling back for retry', async () => {
