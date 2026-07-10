@@ -177,8 +177,8 @@ export default function Workflow() {
       if (schedulerData.success) setSchedulerStatus(schedulerData.scheduler);
       if (workflowsData.success) {
         setWorkflows(workflowsData.workflows);
-        if (!selectedWorkflowId && workflowsData.workflows.length > 0) {
-          setSelectedWorkflowId(workflowsData.workflows[0].id);
+        if (workflowsData.workflows.length > 0) {
+          setSelectedWorkflowId((currentId) => currentId ?? workflowsData.workflows[0].id);
         }
       }
     } catch (error) {
