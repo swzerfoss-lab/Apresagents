@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Play,
   Pause,
@@ -147,12 +147,26 @@ export default function Workflow() {
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [regeneratingAsset, setRegeneratingAsset] = useState<string | null>(null);
   const [newPrompt, setNewPrompt] = useState<string>('');
+  const selectedWorkflowIdRef = useRef<string | null>(null);
+
+  const selectWorkflow = (id: string) => {
+    selectedWorkflowIdRef.current = id;
+    setWorkflowDetail(currentDetail => currentDetail?.id === id ? currentDetail : null);
+    setSelectedWorkflowId(id);
+  };
 
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    selectedWorkflowIdRef.current = selectedWorkflowId;
+    setWorkflowDetail(currentDetail =>
+      currentDetail && currentDetail.id !== selectedWorkflowId ? null : currentDetail
+    );
+  }, [selectedWorkflowId]);
 
   // Poll workflow detail every 3 seconds when a workflow is active
   useEffect(() => {
@@ -193,11 +207,14 @@ export default function Workflow() {
     try {
       const res = await fetch(`/api/workflow/${id}`);
       const data = await res.json();
+      if (selectedWorkflowIdRef.current !== id) return;
       if (data.success) {
         setWorkflowDetail(data.workflow);
         if (data.workflow.currentStage) {
           setExpandedStages(prev => new Set([...prev, data.workflow.currentStage]));
         }
+      } else {
+        setWorkflowDetail(null);
       }
     } catch (error) {
       console.error('Error fetching workflow detail:', error);
@@ -239,7 +256,7 @@ export default function Workflow() {
           if (workflowsData.success && workflowsData.workflows.length > 0) {
             setWorkflows(workflowsData.workflows);
             // Auto-select the newest workflow
-            setSelectedWorkflowId(workflowsData.workflows[0].id);
+            selectWorkflow(workflowsData.workflows[0].id);
             // Expand the strategy stage
             setExpandedStages(new Set(['strategy']));
           }
@@ -457,7 +474,7 @@ export default function Workflow() {
                 {workflows.map(w => (
                   <button
                     key={w.id}
-                    onClick={() => setSelectedWorkflowId(w.id)}
+                    onClick={() => selectWorkflow(w.id)}
                     className={`w-full text-left p-3 rounded-lg border transition-colors ${
                       selectedWorkflowId === w.id
                         ? 'border-alpine-500 bg-alpine-50'
