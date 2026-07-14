@@ -148,8 +148,12 @@ export default function Workflow() {
   const [regeneratingAsset, setRegeneratingAsset] = useState<string | null>(null);
   const [newPrompt, setNewPrompt] = useState<string>('');
   const selectedWorkflowIdRef = useRef<string | null>(null);
+  const workflowDetailRequestVersionRef = useRef(0);
 
   const selectWorkflow = (id: string) => {
+    if (selectedWorkflowIdRef.current !== id) {
+      workflowDetailRequestVersionRef.current += 1;
+    }
     selectedWorkflowIdRef.current = id;
     setWorkflowDetail(currentDetail => currentDetail?.id === id ? currentDetail : null);
     setSelectedWorkflowId(id);
@@ -162,6 +166,7 @@ export default function Workflow() {
   }, []);
 
   useEffect(() => {
+    workflowDetailRequestVersionRef.current += 1;
     selectedWorkflowIdRef.current = selectedWorkflowId;
     setWorkflowDetail(currentDetail =>
       currentDetail && currentDetail.id !== selectedWorkflowId ? null : currentDetail
@@ -204,10 +209,14 @@ export default function Workflow() {
 
   // Separately poll workflow detail so content updates in real-time
   const fetchWorkflowDetail = async (id: string) => {
+    const requestVersion = ++workflowDetailRequestVersionRef.current;
     try {
       const res = await fetch(`/api/workflow/${id}`);
       const data = await res.json();
-      if (selectedWorkflowIdRef.current !== id) return;
+      if (
+        selectedWorkflowIdRef.current !== id ||
+        workflowDetailRequestVersionRef.current !== requestVersion
+      ) return;
       if (data.success) {
         setWorkflowDetail(data.workflow);
         if (data.workflow.currentStage) {
