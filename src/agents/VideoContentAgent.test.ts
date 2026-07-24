@@ -59,16 +59,40 @@ describe('VideoContentAgent.generateVideo local persistence', () => {
       uri: 'https://example.com/expired-video.mp4',
       mimeType: 'video/mp4',
     });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(new Response('expired', { status: 403, statusText: 'Forbidden' }))
-    );
+    const fetchMock = vi.fn().mockResolvedValue(new Response('expired', { status: 403, statusText: 'Forbidden' }));
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await agent.generateVideo('ski recovery product shot', { outputDirectory });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Video generated but could not be saved locally');
     expect(result.error).toContain('403 Forbidden');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.com/expired-video.mp4',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readdir(outputDirectory)).resolves.toEqual([]);
+  });
+
+  it('fails when a URL-backed generated video download times out', async () => {
+    const outputDirectory = await createTempDir();
+    const agent = createVideoAgent({
+      uri: 'https://example.com/stalled-video.mp4',
+      mimeType: 'video/mp4',
+    });
+    const timeoutError = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    const fetchMock = vi.fn().mockRejectedValue(timeoutError);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await agent.generateVideo('ski recovery product shot', { outputDirectory });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Video generated but could not be saved locally');
+    expect(result.error).toMatch(/aborted|timeout/i);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.com/stalled-video.mp4',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     await expect(readdir(outputDirectory)).resolves.toEqual([]);
   });
 
@@ -78,15 +102,17 @@ describe('VideoContentAgent.generateVideo local persistence', () => {
       uri: 'https://example.com/generated-video.mp4',
       mimeType: 'video/mp4',
     });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(new Response('valid video bytes', { status: 200 }))
-    );
+    const fetchMock = vi.fn().mockResolvedValue(new Response('valid video bytes', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await agent.generateVideo('ski recovery product shot', { outputDirectory });
 
     expect(result.success).toBe(true);
     expect(result.data?.filePath).toMatch(/^.+apresfeels_video_\d+_[0-9a-f-]+\.mp4$/);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.com/generated-video.mp4',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     await expect(readFile(result.data!.filePath!, 'utf-8')).resolves.toBe('valid video bytes');
   });
 

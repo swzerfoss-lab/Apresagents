@@ -348,8 +348,11 @@ Always create prompts that will generate cinematic, on-brand video content captu
             fs.writeFileSync(filePath, buffer);
             videoData.filePath = filePath;
           } else if (videoData.videoUrl) {
-            // Download from URL
-            const videoResponse = await fetch(videoData.videoUrl);
+            // Download from URL with a hard deadline so a stalled provider
+            // connection cannot hang workflow/API video generation forever.
+            const videoResponse = await fetch(videoData.videoUrl, {
+              signal: AbortSignal.timeout(180_000),
+            });
             if (!videoResponse.ok) {
               throw new Error(
                 `Video download failed with status ${videoResponse.status} ${videoResponse.statusText}`.trim()
