@@ -62,7 +62,7 @@ describe('VideoEditorAgent', () => {
       (
         command: string,
         args: string[],
-        _options: { maxBuffer: number },
+        _options: { maxBuffer: number; timeout?: number },
         callback: (error: Error | null, stdout: string, stderr: string) => void
       ) => {
         expect(command).toBe('ffmpeg');
@@ -81,7 +81,10 @@ describe('VideoEditorAgent', () => {
     expect(childProcessMocks.execFile).toHaveBeenCalledTimes(1);
 
     const ffmpegArgs = childProcessMocks.execFile.mock.calls[0][1] as string[];
-    expect(ffmpegArgs).toContain(outputPath);
+    const ffmpegTarget = ffmpegArgs[ffmpegArgs.length - 1] as string;
+    expect(ffmpegTarget).not.toBe(outputPath);
+    expect(ffmpegTarget).toContain('.video_combine_');
+    expect(fs.readFileSync(outputPath, 'utf-8')).toBe('combined-video');
     expect(ffmpegArgs.join(' ')).not.toContain('ffmpeg ');
     expect(concatListContent.split('\n')).toHaveLength(2);
     expect(concatListContent).toContain("clip_2_'\\''semi;colon'\\''.mp4");
@@ -99,5 +102,49 @@ describe('VideoEditorAgent', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('unsupported newline characters');
     expect(childProcessMocks.execFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects output paths that collide with an input clip', async () => {
+    const clipOne = path.join(tempDir, 'clip_1.mp4');
+    const clipTwo = path.join(tempDir, 'clip_2.mp4');
+    fs.writeFileSync(clipOne, 'clip-one');
+    fs.writeFileSync(clipTwo, 'clip-two');
+
+    const agent = new VideoEditorAgent(brandConfig);
+    const result = await agent.combineClips([clipOne, clipTwo], clipOne);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('must not match any input clip path');
+    expect(fs.readFileSync(clipOne, 'utf-8')).toBe('clip-one');
+    expect(childProcessMocks.execFile).not.toHaveBeenCalled();
+  });
+
+  it('preserves an existing final video when ffmpeg fails', async () => {
+    const clipOne = path.join(tempDir, 'clip_1.mp4');
+    const clipTwo = path.join(tempDir, 'clip_2.mp4');
+    const outputPath = path.join(tempDir, 'final_video.mp4');
+    fs.writeFileSync(clipOne, 'clip-one');
+    fs.writeFileSync(clipTwo, 'clip-two');
+    fs.writeFileSync(outputPath, 'GOOD_FINAL');
+
+    childProcessMocks.execFile.mockImplementation(
+      (
+        _command: string,
+        args: string[],
+        _options: { maxBuffer: number; timeout?: number },
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        const tempOutput = args[args.length - 1] as string;
+        fs.writeFileSync(tempOutput, 'PARTIAL_BAD_OUTPUT');
+        callback(new Error('ffmpeg failed'), '', 'encode error');
+      }
+    );
+
+    const agent = new VideoEditorAgent(brandConfig);
+    const result = await agent.combineClips([clipOne, clipTwo], outputPath);
+
+    expect(result.success).toBe(false);
+    expect(fs.readFileSync(outputPath, 'utf-8')).toBe('GOOD_FINAL');
+    expect(fs.readdirSync(tempDir).some((name) => name.includes('.video_combine_'))).toBe(false);
   });
 });

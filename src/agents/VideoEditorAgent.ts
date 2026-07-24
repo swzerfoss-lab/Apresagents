@@ -1,8 +1,11 @@
 import { execFile, execFileSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseAgent } from './BaseAgent.js';
 import type { BrandConfig, AgentResponse } from '../types/index.js';
+
+const FFMPEG_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * Result of combining video clips
@@ -99,42 +102,72 @@ After installing, restart your terminal and try again.
       return { success: false, error: 'No clips provided' };
     }
 
-    // Verify all clips exist
-    for (const clipPath of clipPaths) {
+    const resolvedClips = clipPaths.map((clipPath) => path.resolve(clipPath));
+    const resolvedOutput = path.resolve(outputPath);
+
+    // Verify all clips exist as regular files
+    for (const clipPath of resolvedClips) {
       if (!fs.existsSync(clipPath)) {
         return { success: false, error: `Clip not found: ${clipPath}` };
       }
+
+      if (!fs.statSync(clipPath).isFile()) {
+        return { success: false, error: `Clip is not a regular file: ${clipPath}` };
+      }
+    }
+
+    if (resolvedClips.some((clipPath) => clipPath === resolvedOutput)) {
+      return {
+        success: false,
+        error: 'Output path must not match any input clip path',
+      };
     }
 
     // Ensure output directory exists
-    const outputDir = path.dirname(outputPath);
+    const outputDir = path.dirname(resolvedOutput);
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
+    // Write to a temp file first so failed/partial combines cannot destroy an
+    // existing final video or overwrite an input clip mid-encode.
+    const tempOutput = path.join(
+      outputDir,
+      `.video_combine_${process.pid}_${Date.now()}_${randomUUID()}.tmp.mp4`
+    );
+
     try {
       if (options.type === 'none') {
         // Simple concatenation without transitions
-        await this.concatSimple(clipPaths, outputPath);
+        await this.concatSimple(resolvedClips, tempOutput);
       } else if (options.type === 'fade' || options.type === 'crossfade') {
         // Concatenation with fade transitions
-        await this.concatWithFades(clipPaths, outputPath, options.duration || 0.5);
+        await this.concatWithFades(resolvedClips, tempOutput, options.duration || 0.5);
       }
 
+      fs.renameSync(tempOutput, resolvedOutput);
+
       // Get output file info
-      const stats = fs.statSync(outputPath);
-      const duration = await this.getVideoDuration(outputPath);
+      const stats = fs.statSync(resolvedOutput);
+      const duration = await this.getVideoDuration(resolvedOutput);
 
       return {
         success: true,
         data: {
-          outputPath,
+          outputPath: resolvedOutput,
           duration,
-          clipCount: clipPaths.length,
+          clipCount: resolvedClips.length,
           fileSize: stats.size,
         },
       };
     } catch (error) {
+      if (fs.existsSync(tempOutput)) {
+        try {
+          fs.unlinkSync(tempOutput);
+        } catch {
+          // Best-effort cleanup of the failed temp output.
+        }
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
       return { success: false, error: `Failed to combine clips: ${errorMessage}` };
     }
@@ -230,7 +263,7 @@ After installing, restart your terminal and try again.
       const result = execFileSync(
         'ffprobe',
         ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath],
-        { encoding: 'utf-8' }
+        { encoding: 'utf-8', timeout: 30_000 }
       );
       return parseFloat(result.trim()) || 0;
     } catch {
@@ -254,14 +287,19 @@ After installing, restart your terminal and try again.
    */
   private runFfmpeg(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      execFile('ffmpeg', args, { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
-        if (error) {
-          console.error('[VideoEditor] stderr:', stderr);
-          reject(error);
-        } else {
-          resolve();
+      execFile(
+        'ffmpeg',
+        args,
+        { maxBuffer: 50 * 1024 * 1024, timeout: FFMPEG_TIMEOUT_MS },
+        (error, _stdout, stderr) => {
+          if (error) {
+            console.error('[VideoEditor] stderr:', stderr);
+            reject(error);
+          } else {
+            resolve();
+          }
         }
-      });
+      );
     });
   }
 
