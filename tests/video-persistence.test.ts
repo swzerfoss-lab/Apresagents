@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,11 +17,18 @@ afterEach(async () => {
 });
 
 describe('persistGeneratedClip', () => {
-  it('uses an already downloaded file path for URL-backed video results', async () => {
+  it('normalizes an already downloaded file into clip_N naming for video-combine', async () => {
     const outputDir = await createTempDir();
-    const video = { filePath: path.join(outputDir, 'apresfeels_video.mp4') };
+    const downloaded = path.join(outputDir, 'apresfeels_video_1.mp4');
+    await writeFile(downloaded, 'uri-backed bytes');
+    const video = { filePath: downloaded };
 
-    expect(persistGeneratedClip(video, 1, outputDir, 123)).toBe(video.filePath);
+    const filePath = persistGeneratedClip(video, 1, outputDir, 123);
+
+    expect(filePath).toBe(path.join(outputDir, 'clip_1_123.mp4'));
+    expect(video.filePath).toBe(filePath);
+    await expect(readFile(filePath!, 'utf-8')).resolves.toBe('uri-backed bytes');
+    await expect(readFile(downloaded, 'utf-8')).rejects.toThrow();
   });
 
   it('writes base64 video bytes when no file path is present', async () => {
@@ -39,5 +46,12 @@ describe('persistGeneratedClip', () => {
     const outputDir = await createTempDir();
 
     expect(persistGeneratedClip({}, 3, outputDir, 123)).toBeUndefined();
+  });
+
+  it('returns undefined when filePath is missing on disk and there are no bytes', async () => {
+    const outputDir = await createTempDir();
+    const video = { filePath: path.join(outputDir, 'missing.mp4') };
+
+    expect(persistGeneratedClip(video, 4, outputDir, 123)).toBeUndefined();
   });
 });

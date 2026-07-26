@@ -10,6 +10,7 @@ import type {
   AgentResponse,
 } from '../types/index.js';
 import { validateBufferSize, MAX_VIDEO_SIZE } from '../utils/async.js';
+import { persistGeneratedClip } from '../utils/videoPersistence.js';
 
 /**
  * Generated video result from Google Veo 3
@@ -337,6 +338,7 @@ Always create prompts that will generate cinematic, on-brand video content captu
 
       // Save video if output directory specified
       if (options.outputDirectory) {
+        fs.mkdirSync(options.outputDirectory, { recursive: true });
         const fileName = `apresfeels_video_${Date.now()}_${randomUUID()}.mp4`;
         const filePath = path.join(options.outputDirectory, fileName);
 
@@ -345,6 +347,9 @@ Always create prompts that will generate cinematic, on-brand video content captu
             // Save from base64 video bytes
             const buffer = Buffer.from(videoData.videoData, 'base64');
             validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
+            if (buffer.length === 0) {
+              throw new Error('Provider returned empty video bytes');
+            }
             fs.writeFileSync(filePath, buffer);
             videoData.filePath = filePath;
           } else if (videoData.videoUrl) {
@@ -360,6 +365,9 @@ Always create prompts that will generate cinematic, on-brand video content captu
             }
             const buffer = Buffer.from(await videoResponse.arrayBuffer());
             validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
+            if (buffer.length === 0) {
+              throw new Error('Downloaded video was empty');
+            }
             fs.writeFileSync(filePath, buffer);
             videoData.filePath = filePath;
           } else {
@@ -386,19 +394,40 @@ Always create prompts that will generate cinematic, on-brand video content captu
     outputPath: string,
     options: VideoGenerationOptions = {}
   ): Promise<AgentResponse<{ filePath: string; prompt: string; videoUrl?: string }>> {
+    const outputDirectory = path.dirname(outputPath);
+    fs.mkdirSync(outputDirectory, { recursive: true });
+
     const result = await this.generateVideo(prompt, {
       ...options,
-      outputDirectory: path.dirname(outputPath),
+      outputDirectory,
     });
 
-    if (!result.success || !result.data) {
-      return { success: false, error: result.error };
+    if (!result.success || !result.data?.filePath) {
+      return {
+        success: false,
+        error: result.error || 'Video generated but could not be saved locally',
+      };
+    }
+
+    const savedPath = result.data.filePath;
+    if (path.resolve(savedPath) !== path.resolve(outputPath)) {
+      try {
+        fs.renameSync(savedPath, outputPath);
+      } catch {
+        fs.copyFileSync(savedPath, outputPath);
+        try {
+          fs.unlinkSync(savedPath);
+        } catch {
+          // Best-effort cleanup of the randomly named download.
+        }
+      }
+      result.data.filePath = outputPath;
     }
 
     return {
       success: true,
       data: {
-        filePath: result.data.filePath || outputPath,
+        filePath: outputPath,
         prompt: result.data.prompt,
         videoUrl: result.data.videoUrl,
       },
@@ -520,6 +549,12 @@ Generate exactly ${numberOfClips} clips that together tell a cohesive story. Eac
       return { success: false, error: 'No clips defined in video concept' };
     }
 
+    if (!options.outputDirectory) {
+      return { success: false, error: 'outputDirectory is required to persist generated clips' };
+    }
+
+    fs.mkdirSync(options.outputDirectory, { recursive: true });
+
     const results: MultiClipVideoResult = {
       concept,
       clips: [],
@@ -529,11 +564,19 @@ Generate exactly ${numberOfClips} clips that together tell a cohesive story. Eac
     console.log(`\nGenerating ${concept.clips.length} clips for "${concept.title}"...`);
 
     for (const clip of concept.clips) {
+      const promptPreview =
+        typeof clip.veoPrompt === 'string' ? clip.veoPrompt.substring(0, 100) : '(missing prompt)';
       console.log(`\n--- Generating Clip ${clip.clipNumber}/${concept.clips.length} ---`);
-      console.log(`Prompt: ${clip.veoPrompt.substring(0, 100)}...`);
+      console.log(`Prompt: ${promptPreview}...`);
+
+      if (!clip.veoPrompt) {
+        console.warn(`Failed to generate clip ${clip.clipNumber}: missing veoPrompt`);
+        continue;
+      }
 
       const clipResult = await this.generateVideo(clip.veoPrompt, {
         ...options,
+        outputDirectory: options.outputDirectory,
         duration: (clip.duration as 4 | 6 | 8) || 8,
       });
 
@@ -542,34 +585,41 @@ Generate exactly ${numberOfClips} clips that together tell a cohesive story. Eac
         continue;
       }
 
-      // Save clip to file
-      const fileName = `clip_${clip.clipNumber}_${Date.now()}.mp4`;
-      const filePath = path.join(options.outputDirectory, fileName);
-
+      // Normalize to clip_N_* so URI-backed downloads and inline bytes are both
+      // discoverable by video-combine / findClipsInDirectory.
+      let filePath: string | undefined;
       try {
-        if (!fs.existsSync(options.outputDirectory)) {
-          fs.mkdirSync(options.outputDirectory, { recursive: true });
-        }
-
-        if (clipResult.data.videoData) {
-          const buffer = Buffer.from(clipResult.data.videoData, 'base64');
-          fs.writeFileSync(filePath, buffer);
-          clipResult.data.filePath = filePath;
-          console.log(`Saved clip ${clip.clipNumber} to: ${filePath}`);
-        }
+        filePath = persistGeneratedClip(
+          clipResult.data,
+          clip.clipNumber,
+          options.outputDirectory
+        );
       } catch (err) {
-        console.warn(`Failed to save clip ${clip.clipNumber}:`, err);
+        console.warn(`Failed to persist clip ${clip.clipNumber}:`, err);
       }
 
+      if (!filePath) {
+        console.warn(
+          `Failed to persist clip ${clip.clipNumber}: no local filePath or videoData after generation`
+        );
+        continue;
+      }
+
+      console.log(`Saved clip ${clip.clipNumber} to: ${filePath}`);
       results.clips.push({
         clipNumber: clip.clipNumber,
         video: clipResult.data,
-        filePath: clipResult.data.filePath,
+        filePath,
       });
     }
 
     if (results.clips.length === 0) {
       return { success: false, error: 'Failed to generate any clips' };
+    }
+
+    const persistedCount = results.clips.filter((c) => c.filePath).length;
+    if (persistedCount === 0) {
+      return { success: false, error: 'Clips generated but none were saved locally' };
     }
 
     console.log(`\n✅ Generated ${results.clips.length}/${concept.clips.length} clips`);

@@ -147,4 +147,39 @@ describe('VideoEditorAgent', () => {
     expect(fs.readFileSync(outputPath, 'utf-8')).toBe('GOOD_FINAL');
     expect(fs.readdirSync(tempDir).some((name) => name.includes('.video_combine_'))).toBe(false);
   });
+
+  it('keeps only the newest file per clip number when combining a directory', async () => {
+    const older = path.join(tempDir, 'clip_1_100.mp4');
+    const newer = path.join(tempDir, 'clip_1_200.mp4');
+    const clipTwo = path.join(tempDir, 'clip_2_100.mp4');
+    fs.writeFileSync(older, 'old-clip-one');
+    fs.writeFileSync(newer, 'new-clip-one');
+    fs.writeFileSync(clipTwo, 'clip-two');
+    const olderTime = new Date('2020-01-01T00:00:00Z');
+    const newerTime = new Date('2024-01-01T00:00:00Z');
+    fs.utimesSync(older, olderTime, olderTime);
+    fs.utimesSync(newer, newerTime, newerTime);
+
+    childProcessMocks.execFile.mockImplementation(
+      (
+        _command: string,
+        args: string[],
+        _options: { maxBuffer: number; timeout?: number },
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        const listFile = args[args.indexOf('-i') + 1] as string;
+        const listContent = fs.readFileSync(listFile, 'utf-8');
+        expect(listContent).toContain(newer);
+        expect(listContent).not.toContain(older);
+        fs.writeFileSync(args[args.length - 1], 'combined-video');
+        callback(null, '', '');
+      }
+    );
+
+    const agent = new VideoEditorAgent(brandConfig);
+    const result = await agent.combineClipsInDirectory(tempDir, 'final_video.mp4');
+
+    expect(result.success).toBe(true);
+    expect(agent.findClipsInDirectory(tempDir)).toEqual([newer, clipTwo]);
+  });
 });

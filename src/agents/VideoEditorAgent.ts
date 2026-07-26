@@ -304,25 +304,48 @@ After installing, restart your terminal and try again.
   }
 
   /**
-   * Find all clip files in a directory, sorted by clip number
+   * Find all clip files in a directory, sorted by clip number.
+   * When multiple files share a clip number (e.g. re-generation into the same
+   * folder), keep only the newest by mtime so combine does not duplicate scenes.
    */
   findClipsInDirectory(directory: string): string[] {
     if (!fs.existsSync(directory)) {
       return [];
     }
 
-    const files = fs.readdirSync(directory);
-    const clipFiles = files
-      .filter((f) => f.startsWith('clip_') && f.endsWith('.mp4'))
-      .map((f) => ({
-        name: f,
-        path: path.join(directory, f),
-        number: parseInt(f.match(/clip_(\d+)/)?.[1] || '0', 10),
-      }))
-      .sort((a, b) => a.number - b.number)
-      .map((f) => f.path);
+    const newestByNumber = new Map<number, { path: string; mtimeMs: number }>();
 
-    return clipFiles;
+    for (const name of fs.readdirSync(directory)) {
+      if (!name.startsWith('clip_') || !name.endsWith('.mp4')) {
+        continue;
+      }
+
+      const number = parseInt(name.match(/clip_(\d+)/)?.[1] || '0', 10);
+      if (!number) {
+        continue;
+      }
+
+      const clipPath = path.join(directory, name);
+      let mtimeMs: number;
+      try {
+        const stats = fs.statSync(clipPath);
+        if (!stats.isFile()) {
+          continue;
+        }
+        mtimeMs = stats.mtimeMs;
+      } catch {
+        continue;
+      }
+
+      const existing = newestByNumber.get(number);
+      if (!existing || mtimeMs >= existing.mtimeMs) {
+        newestByNumber.set(number, { path: clipPath, mtimeMs });
+      }
+    }
+
+    return [...newestByNumber.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, clip]) => clip.path);
   }
 
   /**

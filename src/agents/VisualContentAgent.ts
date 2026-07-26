@@ -166,10 +166,14 @@ Always create prompts that will generate consistent, on-brand imagery capturing 
 
       // Optionally save to file
       if (options.outputDirectory) {
+        fs.mkdirSync(options.outputDirectory, { recursive: true });
         const fileName = `apresfeels_${Date.now()}_${randomUUID()}.png`;
         const filePath = path.join(options.outputDirectory, fileName);
         const buffer = Buffer.from(imageData.base64Data, 'base64');
         validateBufferSize(buffer, MAX_IMAGE_SIZE, 'Image');
+        if (buffer.length === 0) {
+          throw new Error('Provider returned empty image bytes');
+        }
         fs.writeFileSync(filePath, buffer);
         imageData.filePath = filePath;
       }

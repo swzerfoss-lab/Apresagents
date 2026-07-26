@@ -134,4 +134,63 @@ describe('VideoContentAgent.generateVideo local persistence', () => {
     expect(new Set(filePaths).size).toBe(2);
     expect(await readdir(outputDirectory)).toHaveLength(2);
   });
+
+  it('fails when a URL-backed download returns an empty body', async () => {
+    const outputDirectory = await createTempDir();
+    const agent = createVideoAgent({
+      uri: 'https://example.com/empty-video.mp4',
+      mimeType: 'video/mp4',
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await agent.generateVideo('ski recovery product shot', { outputDirectory });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Downloaded video was empty');
+    await expect(readdir(outputDirectory)).resolves.toEqual([]);
+  });
+
+  it('persists URI-backed clips as clip_N files in generateFullVideo', async () => {
+    const outputDirectory = await createTempDir();
+    const agent = createVideoAgent({
+      uri: 'https://example.com/generated-video.mp4',
+      mimeType: 'video/mp4',
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response('clip-one-bytes', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await agent.generateFullVideo(
+      {
+        title: 'Alpine Recovery',
+        hook: 'hook',
+        narrative: 'narrative',
+        scenes: [],
+        visualStyle: 'cinematic',
+        audioDirection: 'ambient',
+        callToAction: 'shop',
+        platform: 'instagram',
+        duration: '15s',
+        veoPrompt: 'legacy',
+        totalDuration: 15,
+        clips: [
+          {
+            clipNumber: 1,
+            duration: 8,
+            veoPrompt: 'skier carving powder',
+            description: 'action',
+          },
+        ],
+      },
+      { outputDirectory }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data?.clips).toHaveLength(1);
+    expect(result.data?.clips[0]?.filePath).toMatch(/clip_1_\d+\.mp4$/);
+    await expect(readFile(result.data!.clips[0]!.filePath!, 'utf-8')).resolves.toBe('clip-one-bytes');
+    const names = await readdir(outputDirectory);
+    expect(names.some((name) => name.startsWith('clip_1_'))).toBe(true);
+    expect(names.some((name) => name.startsWith('apresfeels_video_'))).toBe(false);
+  });
 });
