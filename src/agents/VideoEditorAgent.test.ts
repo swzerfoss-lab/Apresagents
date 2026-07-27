@@ -148,6 +148,62 @@ describe('VideoEditorAgent', () => {
     expect(fs.readdirSync(tempDir).some((name) => name.includes('.video_combine_'))).toBe(false);
   });
 
+  it('uses cumulative xfade offsets so 3+ clip fades keep full scene length', async () => {
+    const clipOne = path.join(tempDir, 'clip_1.mp4');
+    const clipTwo = path.join(tempDir, 'clip_2.mp4');
+    const clipThree = path.join(tempDir, 'clip_3.mp4');
+    const outputPath = path.join(tempDir, 'final_fade.mp4');
+    fs.writeFileSync(clipOne, 'clip-one');
+    fs.writeFileSync(clipTwo, 'clip-two');
+    fs.writeFileSync(clipThree, 'clip-three');
+
+    childProcessMocks.execFileSync.mockImplementation((command: string, args?: string[]) => {
+      if (command === 'ffmpeg') {
+        return Buffer.from('ffmpeg version');
+      }
+
+      if (command === 'ffprobe') {
+        const probedPath = args?.[args.length - 1] as string;
+        if (probedPath === clipOne || probedPath === clipTwo || probedPath === clipThree) {
+          return '2.0\n';
+        }
+        // Duration probe of the final output after rename.
+        return '5.0\n';
+      }
+
+      return '';
+    });
+
+    let filterComplex = '';
+    childProcessMocks.execFile.mockImplementation(
+      (
+        _command: string,
+        args: string[],
+        _options: { maxBuffer: number; timeout?: number },
+        callback: (error: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        const filterIndex = args.indexOf('-filter_complex');
+        filterComplex = args[filterIndex + 1] as string;
+        fs.writeFileSync(args[args.length - 1], 'combined-fade-video');
+        callback(null, '', '');
+      }
+    );
+
+    const agent = new VideoEditorAgent(brandConfig);
+    const result = await agent.combineClips([clipOne, clipTwo, clipThree], outputPath, {
+      type: 'fade',
+      duration: 0.5,
+    });
+
+    expect(result.success).toBe(true);
+    // First transition at end of clip 1: 2.0 - 0.5 = 1.5
+    expect(filterComplex).toContain('offset=1.5[v1]');
+    // Second transition must advance on the composed timeline: 1.5 + 2.0 - 0.5 = 3
+    // (using only clip 2's duration again would incorrectly reuse offset=1.5).
+    expect(filterComplex).toContain('offset=3[v2]');
+    expect(filterComplex).not.toMatch(/offset=1\.5\[v2\]/);
+  });
+
   it('keeps only the newest file per clip number when combining a directory', async () => {
     const older = path.join(tempDir, 'clip_1_100.mp4');
     const newer = path.join(tempDir, 'clip_1_200.mp4');

@@ -214,10 +214,15 @@ After installing, restart your terminal and try again.
     // Build the filter graph
     const inputArgs = clipPaths.flatMap((p) => ['-i', p]);
 
-    // Build filter for crossfade between clips
+    // Build filter for crossfade between clips.
+    // xfade offset is relative to the growing left-hand stream, so each
+    // subsequent transition must start at the cumulative timeline position
+    // (sum of prior clip durations minus prior fades), not just the previous
+    // source clip's duration.
     let filterComplex = '';
     let currentStream = '[0:v]';
     let audioStream = '[0:a]';
+    let cumulativeOffset = 0;
 
     for (let i = 1; i < clipPaths.length; i++) {
       const nextVideo = `[${i}:v]`;
@@ -225,9 +230,15 @@ After installing, restart your terminal and try again.
       const outVideo = `[v${i}]`;
       const outAudio = `[a${i}]`;
 
-      // Get duration of current clip to calculate offset
       const clipDuration = await this.getVideoDuration(clipPaths[i - 1]);
-      const offset = clipDuration - fadeDuration;
+      if (!(clipDuration > fadeDuration)) {
+        throw new Error(
+          `Clip duration (${clipDuration}s) must be greater than fade duration (${fadeDuration}s): ${clipPaths[i - 1]}`
+        );
+      }
+
+      const offset = cumulativeOffset + clipDuration - fadeDuration;
+      cumulativeOffset = offset;
 
       filterComplex += `${currentStream}${nextVideo}xfade=transition=fade:duration=${fadeDuration}:offset=${offset}${outVideo};`;
       filterComplex += `${audioStream}${nextAudio}acrossfade=d=${fadeDuration}${outAudio};`;
