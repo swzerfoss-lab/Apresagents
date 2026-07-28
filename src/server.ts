@@ -19,6 +19,7 @@ import { getBrandConfig, sampleProducts, validateConfig } from './config/index.j
 import type { SocialPlatform, CampaignObjective, WorkflowStage } from './types/index.js';
 import { generalLimiter, generationLimiter, workflowLimiter } from './middleware/rateLimit.js';
 import { requireAdminAuth } from './middleware/auth.js';
+import { applyTrustProxy } from './middleware/trustProxy.js';
 import {
   validate,
   WorkflowTriggerSchema,
@@ -62,6 +63,10 @@ const contentStorage = new ContentStorage();
 
 // Create Express app
 const app = express();
+// Trust the platform reverse-proxy hop so rate limits key on the client IP.
+// Otherwise all users share the proxy address and public /api/health can DoS
+// the entire API with 429s.
+applyTrustProxy(app);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
 
