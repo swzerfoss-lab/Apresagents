@@ -363,9 +363,12 @@ export default function Workflow() {
       if (data.success) {
         setNewPrompt('');
         fetchWorkflowDetail(workflowDetail.id);
+      } else {
+        alert(`Error: ${data.error || 'Failed to regenerate asset'}`);
       }
     } catch (error) {
       console.error('Error regenerating asset:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to regenerate asset'}`);
     } finally {
       setRegeneratingAsset(null);
     }

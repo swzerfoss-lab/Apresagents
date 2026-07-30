@@ -282,9 +282,11 @@ app.post('/api/video/generate', async (req, res) => {
  * Video generation can take several minutes, so we set a long timeout
  */
 app.post('/api/video/render', generationLimiter, async (req, res) => {
-  // Set a 10-minute timeout for video generation
-  req.setTimeout(600000);
-  res.setTimeout(600000);
+  // Cover Veo polling (up to 15 min) plus download (up to 3 min).
+  // A shorter socket timeout closes the response while generation continues,
+  // so Studio reports failure and loses the paid asset URL.
+  req.setTimeout(1_200_000);
+  res.setTimeout(1_200_000);
 
   try {
     const {
@@ -938,7 +940,11 @@ app.post('/api/workflow/:workflowId/asset/:assetId/regenerate', async (req, res)
     }
   } catch (error) {
     console.error('Error regenerating asset:', error);
-    sendWorkflowMutationError(error, res, 'Failed to regenerate asset');
+    sendWorkflowMutationError(
+      error,
+      res,
+      error instanceof Error ? error.message : 'Failed to regenerate asset'
+    );
   }
 });
 

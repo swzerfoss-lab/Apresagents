@@ -535,10 +535,17 @@ export class WeeklyWorkflowOrchestrator {
           }
         }
       } catch (error) {
+        // Keep the prior asset so a failed paid generation cannot wipe media,
+        // but rethrow so callers do not treat the unchanged asset as success.
         Object.assign(asset, previousAssetState);
         console.error(
           `  ⚠️ Asset regeneration failed for ${asset.id}: ${error instanceof Error ? error.message : 'Unknown'}`
         );
+        await this.storage.saveWorkflow(workflow);
+        if (this.currentWorkflow?.id === workflowId) {
+          this.currentWorkflow = workflow;
+        }
+        throw error instanceof Error ? error : new Error(String(error));
       }
 
       await this.storage.saveWorkflow(workflow);

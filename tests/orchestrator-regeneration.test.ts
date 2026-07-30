@@ -187,21 +187,14 @@ describe('WeeklyWorkflowOrchestrator asset regeneration', () => {
 
     await storage.saveWorkflow(workflow);
 
-    const result = await orchestrator.regenerateAsset('workflow-1', {
-      assetId: 'asset-1',
-      postId: 'post-1',
-      newPrompt: 'replacement prompt',
-      type: 'image',
-    });
-
-    expect(result).toMatchObject({
-      prompt: 'original prompt',
-      url: '/api/assets/images/original.png',
-      filePath: '/tmp/original.png',
-      status: 'completed',
-      metadata: { source: 'original' },
-    });
-    expect(result?.generatedAt).toEqual(originalGeneratedAt);
+    await expect(
+      orchestrator.regenerateAsset('workflow-1', {
+        assetId: 'asset-1',
+        postId: 'post-1',
+        newPrompt: 'replacement prompt',
+        type: 'image',
+      })
+    ).rejects.toThrow('provider unavailable');
 
     const savedWorkflow = await storage.getWorkflow('workflow-1');
     const savedAsset = savedWorkflow?.posts[0].images[0];
