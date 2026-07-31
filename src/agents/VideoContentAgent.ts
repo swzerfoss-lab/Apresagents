@@ -238,11 +238,13 @@ Always create prompts that will generate cinematic, on-brand video content captu
 
       console.log(`Starting video generation with model: ${modelName}`);
 
-      // Build config with all Veo 3.1 parameters
+      // Build config with all Veo 3.1 parameters.
+      // SDK field is generateAudio (not includeAudio); Vertex defaults audio off
+      // when unset, so the wrong key silently produced mute videos.
       const videoConfig: Record<string, unknown> = {
         durationSeconds: options.duration || 8,
         numberOfVideos: 1,
-        includeAudio: options.withAudio !== false, // Audio enabled by default
+        generateAudio: options.withAudio !== false, // Audio enabled by default
       };
 
       // Add aspect ratio if specified

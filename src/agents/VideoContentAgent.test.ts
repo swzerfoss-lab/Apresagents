@@ -52,6 +52,42 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
+describe('VideoContentAgent.generateVideo config', () => {
+  it('passes generateAudio to the Veo SDK (not the invalid includeAudio key)', async () => {
+    const outputDirectory = await createTempDir();
+    const agent = createVideoAgent({
+      videoBytes: Buffer.from('valid video bytes').toString('base64'),
+      mimeType: 'video/mp4',
+    });
+    const generateVideos = (
+      agent as unknown as {
+        genAI: { models: { generateVideos: ReturnType<typeof vi.fn> } };
+      }
+    ).genAI.models.generateVideos;
+
+    const withAudioResult = await agent.generateVideo('recovery ritual with sound', {
+      outputDirectory,
+      withAudio: true,
+    });
+    const withoutAudioResult = await agent.generateVideo('silent product loop', {
+      outputDirectory,
+      withAudio: false,
+    });
+
+    expect(withAudioResult.success).toBe(true);
+    expect(withoutAudioResult.success).toBe(true);
+    expect(generateVideos).toHaveBeenCalledTimes(2);
+
+    const withAudioConfig = generateVideos.mock.calls[0]?.[0]?.config as Record<string, unknown>;
+    const withoutAudioConfig = generateVideos.mock.calls[1]?.[0]?.config as Record<string, unknown>;
+
+    expect(withAudioConfig).toMatchObject({ generateAudio: true });
+    expect(withAudioConfig).not.toHaveProperty('includeAudio');
+    expect(withoutAudioConfig).toMatchObject({ generateAudio: false });
+    expect(withoutAudioConfig).not.toHaveProperty('includeAudio');
+  });
+});
+
 describe('VideoContentAgent.generateVideo local persistence', () => {
   it('fails when a URL-backed generated video cannot be downloaded', async () => {
     const outputDirectory = await createTempDir();
