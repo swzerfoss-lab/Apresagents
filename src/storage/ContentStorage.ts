@@ -496,6 +496,20 @@ export class ContentStorage {
   } | null {
     if (workflow.status === 'running') {
       const interruptedStage = workflow.currentStage;
+
+      // Copywriting checkpoints each post before flipping to awaiting-approval.
+      // If every planned post is already persisted, promote instead of discarding.
+      if (interruptedStage === 'copywriting' && this.isCopywritingOutputComplete(workflow)) {
+        return {
+          interruptedStage,
+          retryApprovalStage: 'copywriting',
+          message:
+            'Workflow was interrupted after copywriting finished; restored awaiting-approval so generated posts are not discarded.',
+          recoverable: true,
+          resetCopywritingOutput: false,
+        };
+      }
+
       const retryApprovalStage = this.getRetryApprovalStage(interruptedStage);
 
       return {
@@ -505,7 +519,8 @@ export class ContentStorage {
           ? `Workflow was interrupted while ${interruptedStage} was running; rolled back to ${retryApprovalStage} approval so the stage can be retried.`
           : `Workflow was interrupted while ${interruptedStage} was running; marked failed so a new workflow can be started.`,
         recoverable: Boolean(retryApprovalStage),
-        resetCopywritingOutput: interruptedStage === 'copywriting',
+        // Keep partial copywriting posts; executeCopywritingStage skips existing IDs.
+        resetCopywritingOutput: false,
       };
     }
 
@@ -565,13 +580,26 @@ export class ContentStorage {
     for (const post of workflow.posts) {
       for (const asset of [...post.images, ...post.videos]) {
         if (asset.status === 'generating') {
-          asset.status = 'pending';
+          // Manual regeneration marks a completed asset generating while keeping its
+          // prior url/filePath. Restore completed so a crash cannot demote paid media.
+          // First-time generation has no media yet, so return it to pending.
+          asset.status = asset.url || asset.filePath ? 'completed' : 'pending';
           reset = true;
         }
       }
     }
 
     return reset;
+  }
+
+  private isCopywritingOutputComplete(workflow: WeeklyWorkflow): boolean {
+    const plannedPosts = workflow.strategy?.posts;
+    if (!plannedPosts || plannedPosts.length === 0) {
+      return false;
+    }
+
+    const existingIds = new Set(workflow.posts.map((post) => post.id));
+    return plannedPosts.every((plannedPost) => existingIds.has(plannedPost.id));
   }
 
   private deserializeWorkflow = (workflow: WeeklyWorkflow): WeeklyWorkflow => {

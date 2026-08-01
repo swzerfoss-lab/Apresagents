@@ -626,6 +626,11 @@ export class WeeklyWorkflowOrchestrator {
     }
 
     for (const plannedPost of strategy.posts) {
+      // Recovery may keep partial copywriting output; skip posts already persisted.
+      if (this.currentWorkflow!.posts.some((post) => post.id === plannedPost.id)) {
+        continue;
+      }
+
       try {
         // Generate caption using correct method signature
         const captionResult = await this.copywritingAgent.generateCaption(

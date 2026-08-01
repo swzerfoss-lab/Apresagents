@@ -250,7 +250,7 @@ describe('ContentStorage', () => {
     ]);
   });
 
-  it('resets assets left generating by an interrupted manual regeneration', async () => {
+  it('resets first-time generating assets to pending after interrupted regeneration', async () => {
     const storageDir = await createStorageDir();
     const storage = new ContentStorage(storageDir);
     const workflow = createWorkflow('workflow-interrupted-regeneration');
@@ -283,14 +283,81 @@ describe('ContentStorage', () => {
     expect(loaded?.errors).toEqual([]);
   });
 
-  it('clears partial copywriting output before rolling back for retry', async () => {
+  it('restores completed media when regeneration is interrupted mid-flight', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-interrupted-regen-completed');
+    workflow.status = 'awaiting-approval';
+    workflow.currentStage = 'image-generation';
+    workflow.awaitingApproval = true;
+    workflow.posts = [createPost('post-1', workflow.id)];
+    workflow.posts[0].images = [
+      {
+        id: 'image-1',
+        postId: 'post-1',
+        type: 'image',
+        prompt: 'Original product photo',
+        url: '/api/assets/images/original.png',
+        filePath: '/tmp/original.png',
+        status: 'generating',
+        generatedAt: new Date('2026-05-01T11:00:00.000Z'),
+      },
+    ];
+
+    await storage.saveWorkflow(workflow);
+
+    const recovered = await storage.recoverInterruptedWorkflows(new Date('2026-05-01T12:00:00.000Z'));
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(recovered.map((recoveredWorkflow) => recoveredWorkflow.id)).toEqual([workflow.id]);
+    expect(loaded?.posts[0].images[0]).toMatchObject({
+      status: 'completed',
+      url: '/api/assets/images/original.png',
+      filePath: '/tmp/original.png',
+      prompt: 'Original product photo',
+    });
+    expect(loaded?.errors).toEqual([]);
+  });
+
+  it('preserves partial copywriting output when rolling back for retry', async () => {
     const storageDir = await createStorageDir();
     const storage = new ContentStorage(storageDir);
     const workflow = createWorkflow('workflow-interrupted-copywriting');
 
     workflow.currentStage = 'copywriting';
-    workflow.posts = [createPost('post-1', workflow.id), createPost('post-2', workflow.id)];
+    workflow.posts = [createPost('post-1', workflow.id)];
     workflow.metrics.postsCompleted = workflow.posts.length;
+    workflow.metrics.totalPosts = 2;
+    workflow.strategy = {
+      weekNumber: 18,
+      year: 2026,
+      theme: 'Glow',
+      goals: ['engagement'],
+      posts: [
+        {
+          id: 'post-1',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'promotional',
+          topic: 'Serum',
+          briefDescription: 'Highlight serum',
+          scheduledDate: workflow.weekStartDate,
+          scheduledTime: '09:00',
+          priority: 'high',
+        },
+        {
+          id: 'post-2',
+          platform: 'tiktok',
+          contentType: 'reel',
+          category: 'educational',
+          topic: 'Routine',
+          briefDescription: 'Morning routine',
+          scheduledDate: workflow.weekStartDate,
+          scheduledTime: '12:00',
+          priority: 'medium',
+        },
+      ],
+    };
     workflow.stageApprovals = [
       { stage: 'strategy', approved: true, approvedAt: new Date('2026-05-01T10:00:00.000Z') },
     ];
@@ -305,9 +372,78 @@ describe('ContentStorage', () => {
       currentStage: 'strategy',
       awaitingApproval: true,
     });
-    expect(loaded?.posts).toEqual([]);
-    expect(loaded?.metrics.postsCompleted).toBe(0);
+    expect(loaded?.posts.map((post) => post.id)).toEqual(['post-1']);
+    expect(loaded?.metrics.postsCompleted).toBe(1);
     expect(loaded?.stageApprovals).toEqual([]);
+  });
+
+  it('promotes finished copywriting to awaiting approval instead of discarding posts', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-finished-copywriting');
+    const recoveryTime = new Date('2026-05-01T12:00:00.000Z');
+
+    workflow.currentStage = 'copywriting';
+    workflow.posts = [createPost('post-1', workflow.id), createPost('post-2', workflow.id)];
+    workflow.metrics.postsCompleted = workflow.posts.length;
+    workflow.metrics.totalPosts = 2;
+    workflow.strategy = {
+      weekNumber: 18,
+      year: 2026,
+      theme: 'Glow',
+      goals: ['engagement'],
+      posts: [
+        {
+          id: 'post-1',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'promotional',
+          topic: 'Serum',
+          briefDescription: 'Highlight serum',
+          scheduledDate: workflow.weekStartDate,
+          scheduledTime: '09:00',
+          priority: 'high',
+        },
+        {
+          id: 'post-2',
+          platform: 'tiktok',
+          contentType: 'reel',
+          category: 'educational',
+          topic: 'Routine',
+          briefDescription: 'Morning routine',
+          scheduledDate: workflow.weekStartDate,
+          scheduledTime: '12:00',
+          priority: 'medium',
+        },
+      ],
+    };
+    workflow.stageApprovals = [
+      { stage: 'strategy', approved: true, approvedAt: new Date('2026-05-01T10:00:00.000Z') },
+    ];
+
+    await storage.saveWorkflow(workflow);
+
+    const recovered = await storage.recoverInterruptedWorkflows(recoveryTime);
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(recovered).toHaveLength(1);
+    expect(loaded).toMatchObject({
+      status: 'awaiting-approval',
+      currentStage: 'copywriting',
+      awaitingApproval: true,
+    });
+    expect(loaded?.posts.map((post) => post.id)).toEqual(['post-1', 'post-2']);
+    expect(loaded?.metrics.postsCompleted).toBe(2);
+    expect(loaded?.stageApprovals.map((approval) => approval.stage)).toEqual(['strategy']);
+    expect(loaded?.errors).toEqual([
+      {
+        stage: 'copywriting',
+        message:
+          'Workflow was interrupted after copywriting finished; restored awaiting-approval so generated posts are not discarded.',
+        timestamp: recoveryTime,
+        recoverable: true,
+      },
+    ]);
   });
 
   it('recovers approval handoffs interrupted before the next stage starts', async () => {
