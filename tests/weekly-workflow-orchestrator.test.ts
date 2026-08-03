@@ -222,3 +222,252 @@ describe('WeeklyWorkflowOrchestrator approvals', () => {
     consoleError.mockRestore();
   });
 });
+
+describe('WeeklyWorkflowOrchestrator calendar edits after copywriting recovery', () => {
+  function createRecoveredStrategyWorkflow(): WeeklyWorkflow {
+    const now = new Date('2026-05-04T00:00:00.000Z');
+    return {
+      id: 'workflow-recovered',
+      weekStartDate: now,
+      weekEndDate: now,
+      status: 'awaiting-approval',
+      currentStage: 'strategy',
+      createdAt: now,
+      strategy: {
+        weekNumber: 19,
+        year: 2026,
+        theme: 'Recovery',
+        goals: ['engagement'],
+        posts: [
+          {
+            id: 'post-1',
+            platform: 'instagram',
+            contentType: 'post',
+            category: 'promotional',
+            topic: 'Old serum topic',
+            briefDescription: 'Old brief',
+            scheduledDate: now,
+            scheduledTime: '09:00',
+            priority: 'high',
+          },
+          {
+            id: 'post-2',
+            platform: 'tiktok',
+            contentType: 'reel',
+            category: 'educational',
+            topic: 'Routine',
+            briefDescription: 'Morning routine',
+            scheduledDate: now,
+            scheduledTime: '12:00',
+            priority: 'medium',
+          },
+        ],
+      },
+      posts: [
+        {
+          id: 'post-1',
+          workflowId: 'workflow-recovered',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'promotional',
+          scheduledDate: now,
+          scheduledTime: '09:00',
+          status: 'draft',
+          caption: 'Stale caption about old serum topic',
+          hashtags: ['#old'],
+          callToAction: 'Shop',
+          images: [
+            {
+              id: 'asset-1',
+              postId: 'post-1',
+              type: 'image',
+              prompt: 'stale prompt',
+              status: 'pending',
+            },
+          ],
+          videos: [],
+          platformFormatting: {
+            platform: 'instagram',
+            formattedCaption: 'Stale caption about old serum topic',
+            formattedHashtags: '#old',
+            characterCount: 34,
+            hashtagCount: 1,
+            aspectRatio: '1:1',
+            additionalNotes: [],
+            isWithinLimits: true,
+          },
+          createdAt: now,
+        },
+      ],
+      errors: [],
+      metrics: {
+        totalPosts: 2,
+        postsCompleted: 1,
+        imagesGenerated: 0,
+        videosGenerated: 0,
+      },
+      stageApprovals: [],
+      awaitingApproval: true,
+    };
+  }
+
+  it('invalidates preserved ReadyPosts when calendar content changes', async () => {
+    const workflow = createRecoveredStrategyWorkflow();
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const testOrchestrator = orchestrator as unknown as {
+      storage: {
+        getWorkflow: ReturnType<typeof vi.fn>;
+        saveWorkflow: ReturnType<typeof vi.fn>;
+      };
+    };
+    testOrchestrator.storage = {
+      getWorkflow: vi.fn(async () => workflow),
+      saveWorkflow: vi.fn(async (saved: WeeklyWorkflow) => {
+        Object.assign(workflow, saved);
+      }),
+    };
+
+    const planned = await orchestrator.editCalendarEntry(workflow.id, {
+      postId: 'post-1',
+      topic: 'New recovery serum angle',
+      briefDescription: 'Updated brief for paid regen',
+    });
+
+    expect(planned?.topic).toBe('New recovery serum angle');
+    expect(workflow.posts.map((post) => post.id)).toEqual([]);
+    expect(workflow.metrics.postsCompleted).toBe(0);
+    expect(testOrchestrator.storage.saveWorkflow).toHaveBeenCalled();
+  });
+
+  it('syncs schedule-only calendar edits onto preserved ReadyPosts', async () => {
+    const workflow = createRecoveredStrategyWorkflow();
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const testOrchestrator = orchestrator as unknown as {
+      storage: {
+        getWorkflow: ReturnType<typeof vi.fn>;
+        saveWorkflow: ReturnType<typeof vi.fn>;
+      };
+    };
+    testOrchestrator.storage = {
+      getWorkflow: vi.fn(async () => workflow),
+      saveWorkflow: vi.fn(async (saved: WeeklyWorkflow) => {
+        Object.assign(workflow, saved);
+      }),
+    };
+
+    await orchestrator.editCalendarEntry(workflow.id, {
+      postId: 'post-1',
+      scheduledTime: '15:30',
+    });
+
+    expect(workflow.posts).toHaveLength(1);
+    expect(workflow.posts[0]).toMatchObject({
+      id: 'post-1',
+      scheduledTime: '15:30',
+      caption: 'Stale caption about old serum topic',
+    });
+    expect(workflow.strategy?.posts[0].scheduledTime).toBe('15:30');
+    expect(workflow.metrics.postsCompleted).toBe(1);
+  });
+
+  it('regenerates copy when re-approving strategy after a content calendar edit', async () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const workflow = createRecoveredStrategyWorkflow();
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const testOrchestrator = orchestrator as unknown as {
+      storage: {
+        getWorkflow: ReturnType<typeof vi.fn>;
+        saveWorkflow: ReturnType<typeof vi.fn>;
+      };
+      copywritingAgent: {
+        generateCaption: ReturnType<typeof vi.fn>;
+        generateHashtags: ReturnType<typeof vi.fn>;
+      };
+      visualAgent: {
+        generateImagePrompt: ReturnType<typeof vi.fn>;
+      };
+      videoAgent: {
+        generateVideoConcept: ReturnType<typeof vi.fn>;
+      };
+      getDefaultPlatformFormatting: ReturnType<typeof vi.fn>;
+      shouldGenerateVideo: ReturnType<typeof vi.fn>;
+    };
+
+    testOrchestrator.storage = {
+      getWorkflow: vi.fn(async () => workflow),
+      saveWorkflow: vi.fn(async (saved: WeeklyWorkflow) => {
+        Object.assign(workflow, saved);
+      }),
+    };
+    testOrchestrator.copywritingAgent = {
+      generateCaption: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          caption: 'Fresh caption for new recovery serum angle',
+          hashtags: ['#new'],
+          callToAction: 'Shop now',
+        },
+      }),
+      generateHashtags: vi.fn().mockResolvedValue({
+        success: true,
+        data: { primary: ['#new'], secondary: [], branded: [] },
+      }),
+    };
+    testOrchestrator.visualAgent = {
+      generateImagePrompt: vi.fn().mockResolvedValue({
+        success: true,
+        data: { prompt: 'fresh image prompt' },
+      }),
+    };
+    testOrchestrator.videoAgent = {
+      generateVideoConcept: vi.fn().mockResolvedValue({ success: false }),
+    };
+    testOrchestrator.getDefaultPlatformFormatting = vi.fn().mockResolvedValue({
+      platform: 'instagram',
+      formattedCaption: 'Fresh caption for new recovery serum angle',
+      formattedHashtags: '#new',
+      characterCount: 42,
+      hashtagCount: 1,
+      aspectRatio: '1:1',
+      additionalNotes: [],
+      isWithinLimits: true,
+    });
+    testOrchestrator.shouldGenerateVideo = vi.fn().mockReturnValue(false);
+
+    await orchestrator.editCalendarEntry(workflow.id, {
+      postId: 'post-1',
+      topic: 'New recovery serum angle',
+    });
+
+    // post-2 still missing; mock second caption generation too
+    testOrchestrator.copywritingAgent.generateCaption = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          caption: 'Fresh caption for new recovery serum angle',
+          hashtags: ['#new'],
+          callToAction: 'Shop now',
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          caption: 'Routine caption',
+          hashtags: ['#routine'],
+          callToAction: 'Try it',
+        },
+      });
+
+    const approved = await orchestrator.approveStageAndContinue(workflow.id, {
+      expectedStage: 'strategy',
+    });
+
+    const regenerated = approved.posts.find((post) => post.id === 'post-1');
+    expect(regenerated?.caption).toBe('Fresh caption for new recovery serum angle');
+    expect(regenerated?.images[0]?.prompt).toBe('fresh image prompt');
+    expect(approved.posts.map((post) => post.id).sort()).toEqual(['post-1', 'post-2']);
+
+    consoleLog.mockRestore();
+  });
+});

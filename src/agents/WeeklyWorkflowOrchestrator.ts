@@ -453,6 +453,15 @@ export class WeeklyWorkflowOrchestrator {
       const plannedPost = workflow.strategy.posts.find(p => p.id === edit.postId);
       if (!plannedPost) return null;
 
+      // Recovery may preserve ReadyPosts while rolling back to strategy approval.
+      // Detect content changes before mutating the plan so copywriting can regenerate.
+      const contentChanged =
+        (edit.topic !== undefined && edit.topic !== plannedPost.topic) ||
+        (edit.briefDescription !== undefined && edit.briefDescription !== plannedPost.briefDescription) ||
+        (edit.platform !== undefined && edit.platform !== plannedPost.platform) ||
+        (edit.contentType !== undefined && edit.contentType !== plannedPost.contentType) ||
+        (edit.category !== undefined && edit.category !== plannedPost.category);
+
       if (edit.scheduledDate !== undefined) plannedPost.scheduledDate = edit.scheduledDate;
       if (edit.scheduledTime !== undefined) plannedPost.scheduledTime = edit.scheduledTime;
       if (edit.topic !== undefined) plannedPost.topic = edit.topic;
@@ -460,6 +469,30 @@ export class WeeklyWorkflowOrchestrator {
       if (edit.platform !== undefined) plannedPost.platform = edit.platform;
       if (edit.contentType !== undefined) plannedPost.contentType = edit.contentType;
       if (edit.category !== undefined) plannedPost.category = edit.category;
+
+      const readyPostIndex = workflow.posts.findIndex((post) => post.id === edit.postId);
+      if (readyPostIndex >= 0) {
+        if (contentChanged) {
+          // Drop stale copy/prompts so executeCopywritingStage regenerates this ID.
+          const [removed] = workflow.posts.splice(readyPostIndex, 1);
+          workflow.metrics.postsCompleted = Math.max(0, workflow.metrics.postsCompleted - 1);
+          workflow.metrics.imagesGenerated = Math.max(
+            0,
+            workflow.metrics.imagesGenerated -
+              removed.images.filter((asset) => asset.status === 'completed').length
+          );
+          workflow.metrics.videosGenerated = Math.max(
+            0,
+            workflow.metrics.videosGenerated -
+              removed.videos.filter((asset) => asset.status === 'completed').length
+          );
+        } else {
+          // Schedule-only edits must still reach the ReadyPost used downstream.
+          const readyPost = workflow.posts[readyPostIndex];
+          if (edit.scheduledDate !== undefined) readyPost.scheduledDate = edit.scheduledDate;
+          if (edit.scheduledTime !== undefined) readyPost.scheduledTime = edit.scheduledTime;
+        }
+      }
 
       await this.storage.saveWorkflow(workflow);
 
@@ -626,9 +659,40 @@ export class WeeklyWorkflowOrchestrator {
     }
 
     for (const plannedPost of strategy.posts) {
-      // Recovery may keep partial copywriting output; skip posts already persisted.
-      if (this.currentWorkflow!.posts.some((post) => post.id === plannedPost.id)) {
-        continue;
+      // Recovery may keep partial copywriting output; skip only when still aligned.
+      const existingIndex = this.currentWorkflow!.posts.findIndex(
+        (post) => post.id === plannedPost.id
+      );
+      if (existingIndex >= 0) {
+        const existing = this.currentWorkflow!.posts[existingIndex];
+        const stillAligned =
+          existing.platform === plannedPost.platform &&
+          existing.contentType === plannedPost.contentType &&
+          existing.category === plannedPost.category &&
+          existing.scheduledTime === plannedPost.scheduledTime &&
+          new Date(existing.scheduledDate).getTime() ===
+            new Date(plannedPost.scheduledDate).getTime();
+
+        if (stillAligned) {
+          continue;
+        }
+
+        // Plan drifted (e.g. calendar edit); drop stale ReadyPost and regenerate.
+        const [removed] = this.currentWorkflow!.posts.splice(existingIndex, 1);
+        this.currentWorkflow!.metrics.postsCompleted = Math.max(
+          0,
+          this.currentWorkflow!.metrics.postsCompleted - 1
+        );
+        this.currentWorkflow!.metrics.imagesGenerated = Math.max(
+          0,
+          this.currentWorkflow!.metrics.imagesGenerated -
+            removed.images.filter((asset) => asset.status === 'completed').length
+        );
+        this.currentWorkflow!.metrics.videosGenerated = Math.max(
+          0,
+          this.currentWorkflow!.metrics.videosGenerated -
+            removed.videos.filter((asset) => asset.status === 'completed').length
+        );
       }
 
       try {
