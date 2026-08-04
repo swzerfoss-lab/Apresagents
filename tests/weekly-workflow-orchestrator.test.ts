@@ -471,3 +471,139 @@ describe('WeeklyWorkflowOrchestrator calendar edits after copywriting recovery',
     consoleLog.mockRestore();
   });
 });
+
+describe('WeeklyWorkflowOrchestrator assembly platform notes isolation', () => {
+  it('does not mutate shared platform bestPractices when brand review fails', async () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const now = new Date('2026-05-05T00:00:00.000Z');
+    const workflow: WeeklyWorkflow = {
+      id: 'workflow-assembly-notes',
+      weekStartDate: now,
+      weekEndDate: now,
+      status: 'running',
+      currentStage: 'assembly',
+      createdAt: now,
+      posts: [
+        {
+          id: 'post-a',
+          workflowId: 'workflow-assembly-notes',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'promotional',
+          scheduledDate: now,
+          scheduledTime: '09:00',
+          status: 'draft',
+          caption: 'Caption A about serum',
+          hashtags: ['#a'],
+          callToAction: 'Shop',
+          images: [],
+          videos: [],
+          platformFormatting: {
+            platform: 'instagram',
+            formattedCaption: 'Caption A about serum',
+            formattedHashtags: '#a',
+            characterCount: 20,
+            hashtagCount: 1,
+            aspectRatio: '1:1',
+            additionalNotes: [],
+            isWithinLimits: true,
+          },
+          createdAt: now,
+        },
+        {
+          id: 'post-b',
+          workflowId: 'workflow-assembly-notes',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'educational',
+          scheduledDate: now,
+          scheduledTime: '12:00',
+          status: 'draft',
+          caption: 'Caption B about routine',
+          hashtags: ['#b'],
+          callToAction: 'Learn',
+          images: [],
+          videos: [],
+          platformFormatting: {
+            platform: 'instagram',
+            formattedCaption: 'Caption B about routine',
+            formattedHashtags: '#b',
+            characterCount: 22,
+            hashtagCount: 1,
+            aspectRatio: '1:1',
+            additionalNotes: [],
+            isWithinLimits: true,
+          },
+          createdAt: now,
+        },
+      ],
+      errors: [],
+      metrics: {
+        totalPosts: 2,
+        postsCompleted: 2,
+        imagesGenerated: 0,
+        videosGenerated: 0,
+      },
+      stageApprovals: [],
+      awaitingApproval: false,
+    };
+
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const testOrchestrator = orchestrator as unknown as {
+      currentWorkflow: WeeklyWorkflow | null;
+      storage: {
+        saveWorkflow: ReturnType<typeof vi.fn>;
+      };
+      brandVoiceAgent: {
+        reviewContent: ReturnType<typeof vi.fn>;
+      };
+      executeAssemblyStage: () => Promise<void>;
+      platformAgents: {
+        instagram: { getSpecs: () => { bestPractices: string[] } };
+      };
+    };
+
+    const sharedBestPractices = testOrchestrator.platformAgents.instagram.getSpecs().bestPractices;
+    const bestPracticesBefore = [...sharedBestPractices];
+
+    testOrchestrator.currentWorkflow = workflow;
+    testOrchestrator.storage = {
+      saveWorkflow: vi.fn(async (saved: WeeklyWorkflow) => {
+        Object.assign(workflow, saved);
+      }),
+    };
+    testOrchestrator.brandVoiceAgent = {
+      reviewContent: vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: true,
+          data: { overallScore: 90, suggestions: [] },
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          data: {
+            overallScore: 40,
+            suggestions: ['Too salesy for brand voice'],
+          },
+        }),
+    };
+
+    await testOrchestrator.executeAssemblyStage();
+
+    expect(sharedBestPractices).toEqual(bestPracticesBefore);
+    expect(
+      sharedBestPractices.some((note) => note.includes('Brand review score'))
+    ).toBe(false);
+
+    const postANotes = workflow.posts[0].platformFormatting.additionalNotes;
+    const postBNotes = workflow.posts[1].platformFormatting.additionalNotes;
+    expect(postANotes.some((note) => note.includes('Brand review score'))).toBe(false);
+    expect(postBNotes.some((note) => note.includes('Brand review score: 40'))).toBe(true);
+    expect(postANotes).not.toBe(sharedBestPractices);
+    expect(postBNotes).not.toBe(sharedBestPractices);
+    expect(workflow.posts[0].status).toBe('ready');
+    expect(workflow.posts[1].status).toBe('draft');
+
+    consoleLog.mockRestore();
+  });
+});

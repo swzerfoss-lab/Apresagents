@@ -950,7 +950,8 @@ export class WeeklyWorkflowOrchestrator {
           .map(tag => tag.startsWith('#') ? tag : `#${tag}`)
           .join(' ');
 
-        // Update platform formatting
+        // Update platform formatting. Copy bestPractices — a shared reference would
+        // let brand-review notes mutate module-level platform specs and sibling posts.
         post.platformFormatting = {
           platform: post.platform,
           formattedCaption,
@@ -958,7 +959,7 @@ export class WeeklyWorkflowOrchestrator {
           characterCount: formattedCaption.length + formattedHashtags.length,
           hashtagCount: post.hashtags.slice(0, specs.maxHashtags).length,
           aspectRatio: this.getAspectRatio(post.platform, post.contentType),
-          additionalNotes: specs.bestPractices,
+          additionalNotes: [...specs.bestPractices],
           isWithinLimits:
             formattedCaption.length <= specs.maxCaptionLength &&
             post.hashtags.length <= specs.maxHashtags,
