@@ -497,14 +497,47 @@ export class ContentStorage {
     if (workflow.status === 'running') {
       const interruptedStage = workflow.currentStage;
 
-      // Copywriting checkpoints each post before flipping to awaiting-approval.
-      // If every planned post is already persisted, promote instead of discarding.
+      // Stages checkpoint before flipping to awaiting-approval. If the stage
+      // finished on disk, promote instead of rolling back / failing.
+      if (interruptedStage === 'strategy' && this.isStrategyOutputComplete(workflow)) {
+        return {
+          interruptedStage,
+          retryApprovalStage: 'strategy',
+          message:
+            'Workflow was interrupted after strategy finished; restored awaiting-approval so the generated calendar is not discarded.',
+          recoverable: true,
+          resetCopywritingOutput: false,
+        };
+      }
+
       if (interruptedStage === 'copywriting' && this.isCopywritingOutputComplete(workflow)) {
         return {
           interruptedStage,
           retryApprovalStage: 'copywriting',
           message:
             'Workflow was interrupted after copywriting finished; restored awaiting-approval so generated posts are not discarded.',
+          recoverable: true,
+          resetCopywritingOutput: false,
+        };
+      }
+
+      if (interruptedStage === 'image-generation' && this.isImageGenerationOutputComplete(workflow)) {
+        return {
+          interruptedStage,
+          retryApprovalStage: 'image-generation',
+          message:
+            'Workflow was interrupted after image generation finished; restored awaiting-approval so generated images are not discarded.',
+          recoverable: true,
+          resetCopywritingOutput: false,
+        };
+      }
+
+      if (interruptedStage === 'video-generation' && this.isVideoGenerationOutputComplete(workflow)) {
+        return {
+          interruptedStage,
+          retryApprovalStage: 'video-generation',
+          message:
+            'Workflow was interrupted after video generation finished; restored awaiting-approval so generated videos are not discarded.',
           recoverable: true,
           resetCopywritingOutput: false,
         };
@@ -592,6 +625,11 @@ export class ContentStorage {
     return reset;
   }
 
+  private isStrategyOutputComplete(workflow: WeeklyWorkflow): boolean {
+    const plannedPosts = workflow.strategy?.posts;
+    return Boolean(plannedPosts && plannedPosts.length > 0);
+  }
+
   private isCopywritingOutputComplete(workflow: WeeklyWorkflow): boolean {
     const plannedPosts = workflow.strategy?.posts;
     if (!plannedPosts || plannedPosts.length === 0) {
@@ -600,6 +638,17 @@ export class ContentStorage {
 
     const existingIds = new Set(workflow.posts.map((post) => post.id));
     return plannedPosts.every((plannedPost) => existingIds.has(plannedPost.id));
+  }
+
+  private isImageGenerationOutputComplete(workflow: WeeklyWorkflow): boolean {
+    const images = workflow.posts.flatMap((post) => post.images);
+    return images.length > 0 && images.every((asset) => asset.status === 'completed' || asset.status === 'failed');
+  }
+
+  private isVideoGenerationOutputComplete(workflow: WeeklyWorkflow): boolean {
+    const videos = workflow.posts.flatMap((post) => post.videos);
+    // No video assets means the stage had nothing to do and can be treated as complete.
+    return videos.every((asset) => asset.status === 'completed' || asset.status === 'failed');
   }
 
   private deserializeWorkflow = (workflow: WeeklyWorkflow): WeeklyWorkflow => {

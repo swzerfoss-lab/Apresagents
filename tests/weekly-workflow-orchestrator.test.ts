@@ -472,6 +472,127 @@ describe('WeeklyWorkflowOrchestrator calendar edits after copywriting recovery',
   });
 });
 
+describe('WeeklyWorkflowOrchestrator media stage checkpoints', () => {
+  it('persists each completed image before the batch finishes', async () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const now = new Date('2026-05-05T00:00:00.000Z');
+    const workflow: WeeklyWorkflow = {
+      id: 'workflow-image-checkpoints',
+      weekStartDate: now,
+      weekEndDate: now,
+      status: 'running',
+      currentStage: 'image-generation',
+      createdAt: now,
+      posts: [
+        {
+          id: 'post-1',
+          workflowId: 'workflow-image-checkpoints',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'promotional',
+          scheduledDate: now,
+          scheduledTime: '09:00',
+          status: 'draft',
+          caption: 'Caption',
+          hashtags: ['#test'],
+          callToAction: 'Shop',
+          images: [
+            {
+              id: 'image-1',
+              postId: 'post-1',
+              type: 'image',
+              prompt: 'first',
+              status: 'pending',
+            },
+            {
+              id: 'image-2',
+              postId: 'post-1',
+              type: 'image',
+              prompt: 'second',
+              status: 'pending',
+            },
+          ],
+          videos: [],
+          platformFormatting: {
+            platform: 'instagram',
+            formattedCaption: 'Caption',
+            formattedHashtags: '#test',
+            characterCount: 7,
+            hashtagCount: 1,
+            aspectRatio: '1:1',
+            additionalNotes: [],
+            isWithinLimits: true,
+          },
+          createdAt: now,
+        },
+      ],
+      errors: [],
+      metrics: {
+        totalPosts: 1,
+        postsCompleted: 1,
+        imagesGenerated: 0,
+        videosGenerated: 0,
+        startTime: now,
+      },
+      stageApprovals: [],
+      awaitingApproval: false,
+    };
+
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const saveWorkflow = vi.fn().mockResolvedValue(undefined);
+    const secondImageStarted = createDeferred<void>();
+    const releaseSecondImage = createDeferred<void>();
+    let firstImageSavedBeforeSecondStarted = false;
+
+    const testOrchestrator = orchestrator as unknown as {
+      currentWorkflow: WeeklyWorkflow | null;
+      storage: { saveWorkflow: typeof saveWorkflow };
+      visualAgent: {
+        generateImage: ReturnType<typeof vi.fn>;
+      };
+      assetsDir: string;
+      executeImageGenerationStage: () => Promise<void>;
+    };
+
+    testOrchestrator.currentWorkflow = workflow;
+    testOrchestrator.storage = { saveWorkflow };
+    testOrchestrator.visualAgent = {
+      generateImage: vi
+        .fn()
+        .mockImplementationOnce(async () => ({
+          success: true,
+          data: { filePath: '/tmp/image-1.png' },
+        }))
+        .mockImplementationOnce(async () => {
+          secondImageStarted.resolve();
+          await releaseSecondImage.promise;
+          return {
+            success: true,
+            data: { filePath: '/tmp/image-2.png' },
+          };
+        }),
+    };
+
+    const stagePromise = testOrchestrator.executeImageGenerationStage();
+
+    await secondImageStarted.promise;
+    firstImageSavedBeforeSecondStarted = saveWorkflow.mock.calls.some((call) => {
+      const saved = call[0] as WeeklyWorkflow;
+      const [first, second] = saved.posts[0].images;
+      return first.status === 'completed' && second.status !== 'completed';
+    });
+
+    releaseSecondImage.resolve();
+    await stagePromise;
+
+    expect(firstImageSavedBeforeSecondStarted).toBe(true);
+    expect(workflow.posts[0].images.every((image) => image.status === 'completed')).toBe(true);
+    expect(saveWorkflow.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    consoleLog.mockRestore();
+  });
+});
+
 describe('WeeklyWorkflowOrchestrator assembly platform notes isolation', () => {
   it('does not mutate shared platform bestPractices when brand review fails', async () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);

@@ -250,6 +250,152 @@ describe('ContentStorage', () => {
     ]);
   });
 
+  it('promotes finished strategy to awaiting approval instead of failing', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-finished-strategy');
+    const recoveryTime = new Date('2026-05-01T12:00:00.000Z');
+
+    workflow.currentStage = 'strategy';
+    workflow.strategy = {
+      weekNumber: 18,
+      year: 2026,
+      theme: 'Glow',
+      goals: ['engagement'],
+      posts: [
+        {
+          id: 'post-1',
+          platform: 'instagram',
+          contentType: 'post',
+          category: 'promotional',
+          topic: 'Serum',
+          briefDescription: 'Highlight serum',
+          scheduledDate: workflow.weekStartDate,
+          scheduledTime: '09:00',
+          priority: 'high',
+        },
+      ],
+    };
+    workflow.metrics.totalPosts = 1;
+
+    await storage.saveWorkflow(workflow);
+
+    const recovered = await storage.recoverInterruptedWorkflows(recoveryTime);
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(recovered).toHaveLength(1);
+    expect(loaded).toMatchObject({
+      status: 'awaiting-approval',
+      currentStage: 'strategy',
+      awaitingApproval: true,
+    });
+    expect(loaded?.strategy?.posts).toHaveLength(1);
+    expect(loaded?.errors).toEqual([
+      {
+        stage: 'strategy',
+        message:
+          'Workflow was interrupted after strategy finished; restored awaiting-approval so the generated calendar is not discarded.',
+        timestamp: recoveryTime,
+        recoverable: true,
+      },
+    ]);
+  });
+
+  it('promotes finished image generation to awaiting approval instead of rolling back', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-finished-images');
+    const recoveryTime = new Date('2026-05-01T12:00:00.000Z');
+
+    workflow.currentStage = 'image-generation';
+    workflow.posts = [createPost('post-1', workflow.id)];
+    workflow.posts[0].images = [
+      {
+        id: 'image-1',
+        postId: 'post-1',
+        type: 'image',
+        prompt: 'Product photo',
+        url: '/api/assets/images/image-1.png',
+        filePath: '/tmp/image-1.png',
+        status: 'completed',
+        generatedAt: new Date('2026-05-01T11:30:00.000Z'),
+      },
+    ];
+    workflow.stageApprovals = [
+      { stage: 'strategy', approved: true, approvedAt: new Date('2026-05-01T10:00:00.000Z') },
+      { stage: 'copywriting', approved: true, approvedAt: new Date('2026-05-01T11:00:00.000Z') },
+    ];
+
+    await storage.saveWorkflow(workflow);
+
+    const recovered = await storage.recoverInterruptedWorkflows(recoveryTime);
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(recovered).toHaveLength(1);
+    expect(loaded).toMatchObject({
+      status: 'awaiting-approval',
+      currentStage: 'image-generation',
+      awaitingApproval: true,
+    });
+    expect(loaded?.stageApprovals.map((approval) => approval.stage)).toEqual([
+      'strategy',
+      'copywriting',
+    ]);
+    expect(loaded?.posts[0].images[0].status).toBe('completed');
+    expect(loaded?.errors).toEqual([
+      {
+        stage: 'image-generation',
+        message:
+          'Workflow was interrupted after image generation finished; restored awaiting-approval so generated images are not discarded.',
+        timestamp: recoveryTime,
+        recoverable: true,
+      },
+    ]);
+  });
+
+  it('promotes finished video generation to awaiting approval instead of rolling back', async () => {
+    const storageDir = await createStorageDir();
+    const storage = new ContentStorage(storageDir);
+    const workflow = createWorkflow('workflow-finished-videos');
+    const recoveryTime = new Date('2026-05-01T12:00:00.000Z');
+
+    workflow.currentStage = 'video-generation';
+    workflow.posts = [createPost('post-1', workflow.id)];
+    workflow.posts[0].videos = [
+      {
+        id: 'video-1',
+        postId: 'post-1',
+        type: 'video',
+        prompt: 'Product reel',
+        url: '/api/assets/videos/video-1.mp4',
+        filePath: '/tmp/video-1.mp4',
+        status: 'completed',
+        generatedAt: new Date('2026-05-01T11:45:00.000Z'),
+      },
+    ];
+    workflow.stageApprovals = [
+      { stage: 'strategy', approved: true, approvedAt: new Date('2026-05-01T10:00:00.000Z') },
+      { stage: 'copywriting', approved: true, approvedAt: new Date('2026-05-01T11:00:00.000Z') },
+      { stage: 'image-generation', approved: true, approvedAt: new Date('2026-05-01T11:30:00.000Z') },
+    ];
+
+    await storage.saveWorkflow(workflow);
+
+    const recovered = await storage.recoverInterruptedWorkflows(recoveryTime);
+    const loaded = await storage.getWorkflow(workflow.id);
+
+    expect(recovered).toHaveLength(1);
+    expect(loaded).toMatchObject({
+      status: 'awaiting-approval',
+      currentStage: 'video-generation',
+      awaitingApproval: true,
+    });
+    expect(loaded?.posts[0].videos[0].status).toBe('completed');
+    expect(loaded?.errors[0]?.message).toContain(
+      'interrupted after video generation finished'
+    );
+  });
+
   it('resets first-time generating assets to pending after interrupted regeneration', async () => {
     const storageDir = await createStorageDir();
     const storage = new ContentStorage(storageDir);

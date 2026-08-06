@@ -645,6 +645,10 @@ export class WeeklyWorkflowOrchestrator {
     };
 
     this.currentWorkflow!.metrics.totalPosts = plannedPosts.length;
+
+    // Checkpoint strategy before the awaiting-approval flip so a crash cannot
+    // discard a paid calendar that only lived in memory.
+    await this.storage.saveWorkflow(this.currentWorkflow!);
   }
 
   /**
@@ -822,7 +826,8 @@ export class WeeklyWorkflowOrchestrator {
 
     console.log(`  Processing ${pendingImages.length} images in parallel (concurrency: 3)...`);
 
-    // Process images in parallel with concurrency limit of 3
+    // Process images in parallel with concurrency limit of 3.
+    // Checkpoint after each asset so a mid-batch crash cannot orphan paid media.
     await parallelLimit(
       pendingImages,
       async ({ post, image }) => {
@@ -857,11 +862,12 @@ export class WeeklyWorkflowOrchestrator {
             post.id
           );
         }
+
+        await this.storage.saveWorkflow(this.currentWorkflow!);
       },
       3 // Concurrency limit
     );
 
-    // Save progress after all images are processed
     await this.storage.saveWorkflow(this.currentWorkflow!);
   }
 
@@ -883,7 +889,8 @@ export class WeeklyWorkflowOrchestrator {
 
     console.log(`  Processing ${pendingVideos.length} videos in parallel (concurrency: 2)...`);
 
-    // Process videos in parallel with concurrency limit of 2 (videos are expensive)
+    // Process videos in parallel with concurrency limit of 2 (videos are expensive).
+    // Checkpoint after each asset so a mid-batch crash cannot orphan paid media.
     await parallelLimit(
       pendingVideos,
       async ({ post, video }) => {
@@ -918,11 +925,12 @@ export class WeeklyWorkflowOrchestrator {
             post.id
           );
         }
+
+        await this.storage.saveWorkflow(this.currentWorkflow!);
       },
       2 // Lower concurrency for videos (expensive operations)
     );
 
-    // Save progress after all videos are processed
     await this.storage.saveWorkflow(this.currentWorkflow!);
   }
 
