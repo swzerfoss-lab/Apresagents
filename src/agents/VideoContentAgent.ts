@@ -12,6 +12,11 @@ import type {
 import { validateBufferSize, MAX_VIDEO_SIZE } from '../utils/async.js';
 import { persistGeneratedClip } from '../utils/videoPersistence.js';
 
+/** Per-call deadline for Veo long-running-op start (Vertex ApiClient has no default timeout). */
+const VEO_REQUEST_TIMEOUT_MS = 120_000;
+/** Per-call deadline for each getVideosOperation poll request. */
+const VEO_POLL_TIMEOUT_MS = 60_000;
+
 /**
  * Generated video result from Google Veo 3
  */
@@ -277,11 +282,17 @@ Always create prompts that will generate cinematic, on-brand video content captu
         videoConfig.personGeneration = options.personGeneration;
       }
 
-      // Generate video using Veo 3 - returns a long-running operation
+      // Generate video using Veo 3 - returns a long-running operation.
+      // Vertex ApiClient only aborts when httpOptions.timeout or abortSignal is
+      // set (no SDK default), so unbound awaits can hang workflow/API forever.
       let operation = await this.genAI.models.generateVideos({
         model: modelName,
         prompt: enhancedPrompt,
-        config: videoConfig,
+        config: {
+          ...videoConfig,
+          httpOptions: { timeout: VEO_REQUEST_TIMEOUT_MS },
+          abortSignal: AbortSignal.timeout(VEO_REQUEST_TIMEOUT_MS),
+        },
       });
 
       // Poll for the operation to complete
@@ -299,7 +310,15 @@ Always create prompts that will generate cinematic, on-brand video content captu
         // Poll operation status using the operation name
         if (operation.name) {
           try {
-            operation = await this.genAI.operations.getVideosOperation({ operation: operation });
+            // Vertex getVideosOperation forwards httpOptions.timeout but drops
+            // abortSignal; set both so Gemini API and Vertex stay bounded.
+            operation = await this.genAI.operations.getVideosOperation({
+              operation: operation,
+              config: {
+                httpOptions: { timeout: VEO_POLL_TIMEOUT_MS },
+                abortSignal: AbortSignal.timeout(VEO_POLL_TIMEOUT_MS),
+              },
+            });
             consecutiveErrors = 0; // Reset on success
           } catch (pollError) {
             consecutiveErrors++;
@@ -318,6 +337,14 @@ Always create prompts that will generate cinematic, on-brand video content captu
 
       if (!operation.done) {
         return { success: false, error: `Video generation timed out after ${maxAttempts * pollInterval / 1000} seconds` };
+      }
+
+      if (operation.error) {
+        const errorMessage =
+          typeof operation.error.message === 'string'
+            ? operation.error.message
+            : JSON.stringify(operation.error);
+        return { success: false, error: `Video generation failed: ${errorMessage}` };
       }
 
       // Check for video in response

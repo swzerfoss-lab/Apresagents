@@ -86,6 +86,87 @@ describe('VideoContentAgent.generateVideo config', () => {
     expect(withoutAudioConfig).toMatchObject({ generateAudio: false });
     expect(withoutAudioConfig).not.toHaveProperty('includeAudio');
   });
+
+  it('bounds generateVideos and getVideosOperation with per-call timeouts', async () => {
+    const outputDirectory = await createTempDir();
+    const agent = createVideoAgent({
+      videoBytes: Buffer.from('valid video bytes').toString('base64'),
+      mimeType: 'video/mp4',
+    });
+    const genAI = (
+      agent as unknown as {
+        genAI: {
+          models: { generateVideos: ReturnType<typeof vi.fn> };
+          operations: { getVideosOperation: ReturnType<typeof vi.fn> };
+        };
+      }
+    ).genAI;
+
+    genAI.models.generateVideos.mockResolvedValue({
+      done: false,
+      name: 'operations/test-veo-op',
+    });
+    genAI.operations.getVideosOperation.mockResolvedValue({
+      done: true,
+      name: 'operations/test-veo-op',
+      response: {
+        generatedVideos: [
+          {
+            video: {
+              videoBytes: Buffer.from('valid video bytes').toString('base64'),
+              mimeType: 'video/mp4',
+            },
+          },
+        ],
+      },
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = agent.generateVideo('bounded poll', { outputDirectory });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await resultPromise;
+    vi.useRealTimers();
+
+    expect(result.success).toBe(true);
+
+    const generateConfig = genAI.models.generateVideos.mock.calls[0]?.[0]?.config as {
+      httpOptions?: { timeout?: number };
+      abortSignal?: AbortSignal;
+    };
+    expect(generateConfig.httpOptions?.timeout).toBe(120_000);
+    expect(generateConfig.abortSignal).toBeInstanceOf(AbortSignal);
+
+    const pollArgs = genAI.operations.getVideosOperation.mock.calls[0]?.[0] as {
+      config?: { httpOptions?: { timeout?: number }; abortSignal?: AbortSignal };
+    };
+    expect(pollArgs.config?.httpOptions?.timeout).toBe(60_000);
+    expect(pollArgs.config?.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('fails when the Veo operation completes with an error payload', async () => {
+    const outputDirectory = await createTempDir();
+    const agent = createVideoAgent({
+      videoBytes: Buffer.from('valid video bytes').toString('base64'),
+      mimeType: 'video/mp4',
+    });
+    const generateVideos = (
+      agent as unknown as {
+        genAI: { models: { generateVideos: ReturnType<typeof vi.fn> } };
+      }
+    ).genAI.models.generateVideos;
+
+    generateVideos.mockResolvedValue({
+      done: true,
+      name: 'operations/failed-veo-op',
+      error: { message: 'Safety filter blocked generation' },
+      response: { generatedVideos: [] },
+    });
+
+    const result = await agent.generateVideo('blocked prompt', { outputDirectory });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Safety filter blocked generation');
+  });
 });
 
 describe('VideoContentAgent.generateVideo local persistence', () => {
