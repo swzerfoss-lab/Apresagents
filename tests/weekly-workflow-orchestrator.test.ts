@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { WeeklyWorkflowOrchestrator } from '../src/agents/WeeklyWorkflowOrchestrator.js';
+import {
+  WeeklyWorkflowOrchestrator,
+  WorkflowMutationConflictError,
+} from '../src/agents/WeeklyWorkflowOrchestrator.js';
 import { BrandConfig, WeeklyWorkflow, WorkflowStage } from '../src/types/index.js';
 
 const brandConfig: BrandConfig = {
@@ -337,6 +340,53 @@ describe('WeeklyWorkflowOrchestrator calendar edits after copywriting recovery',
     expect(workflow.posts.map((post) => post.id)).toEqual([]);
     expect(workflow.metrics.postsCompleted).toBe(0);
     expect(testOrchestrator.storage.saveWorkflow).toHaveBeenCalled();
+  });
+
+  it('rejects calendar content edits after strategy so completed media is not deleted', async () => {
+    const workflow = createRecoveredStrategyWorkflow();
+    workflow.currentStage = 'image-generation';
+    workflow.status = 'awaiting-approval';
+    workflow.awaitingApproval = true;
+    workflow.posts[0].images[0] = {
+      id: 'asset-1',
+      postId: 'post-1',
+      type: 'image',
+      prompt: 'paid product photo',
+      url: '/api/assets/images/asset-1.png',
+      filePath: '/tmp/asset-1.png',
+      status: 'completed',
+      generatedAt: new Date('2026-05-04T01:00:00.000Z'),
+    };
+    workflow.metrics.imagesGenerated = 1;
+
+    const orchestrator = new WeeklyWorkflowOrchestrator(brandConfig);
+    const testOrchestrator = orchestrator as unknown as {
+      storage: {
+        getWorkflow: ReturnType<typeof vi.fn>;
+        saveWorkflow: ReturnType<typeof vi.fn>;
+      };
+    };
+    testOrchestrator.storage = {
+      getWorkflow: vi.fn(async () => workflow),
+      saveWorkflow: vi.fn(async (saved: WeeklyWorkflow) => {
+        Object.assign(workflow, saved);
+      }),
+    };
+
+    await expect(
+      orchestrator.editCalendarEntry(workflow.id, {
+        postId: 'post-1',
+        topic: 'Stale form save after approve',
+      })
+    ).rejects.toBeInstanceOf(WorkflowMutationConflictError);
+
+    expect(workflow.posts).toHaveLength(1);
+    expect(workflow.posts[0].images[0]).toMatchObject({
+      status: 'completed',
+      url: '/api/assets/images/asset-1.png',
+    });
+    expect(workflow.strategy?.posts[0].topic).toBe('Old serum topic');
+    expect(testOrchestrator.storage.saveWorkflow).not.toHaveBeenCalled();
   });
 
   it('syncs schedule-only calendar edits onto preserved ReadyPosts', async () => {

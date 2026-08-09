@@ -282,6 +282,10 @@ export default function Workflow() {
   const approveStage = async () => {
     if (!workflowDetail) return;
     setApproving(true);
+    // Clear open calendar/post editors so a Save after stage advance cannot
+    // hit editCalendarEntry once ReadyPosts/media already exist.
+    setEditingItem(null);
+    setEditForm({});
     try {
       const res = await fetch(`/api/workflow/${workflowDetail.id}/approve-stage`, {
         method: 'POST',
@@ -653,7 +657,7 @@ export default function Workflow() {
                                   <div className="space-y-3">
                                     {workflowDetail.strategy.posts.map(post => (
                                   <div key={post.id} className="border border-gray-200 rounded-lg p-3">
-                                    {editingItem?.type === 'calendar' && editingItem?.id === post.id ? (
+                                    {editingItem?.type === 'calendar' && editingItem?.id === post.id && status === 'awaiting' ? (
                                       <div className="space-y-3">
                                         <input
                                           type="text"

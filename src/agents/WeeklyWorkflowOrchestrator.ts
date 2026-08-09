@@ -450,6 +450,15 @@ export class WeeklyWorkflowOrchestrator {
       if (!workflow || !workflow.strategy) return null;
       this.assertManualMutationAllowed(workflow);
 
+      // Content edits splice ReadyPosts (including completed media). Only allow
+      // this at strategy review — a stale UI form or raw API call past strategy
+      // would otherwise destroy paid images/videos with no copywriting re-run.
+      if (workflow.currentStage !== 'strategy' || !workflow.awaitingApproval) {
+        throw new WorkflowMutationConflictError(
+          'Calendar entries can only be edited while the strategy stage is awaiting approval'
+        );
+      }
+
       const plannedPost = workflow.strategy.posts.find(p => p.id === edit.postId);
       if (!plannedPost) return null;
 
