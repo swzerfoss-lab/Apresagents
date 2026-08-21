@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm } from 'fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -266,6 +266,65 @@ describe('VideoContentAgent.generateVideo local persistence', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Downloaded video was empty');
     await expect(readdir(outputDirectory)).resolves.toEqual([]);
+  });
+
+  it('authenticates Gemini file URI downloads with the API key', async () => {
+    const previousKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
+    const outputDirectory = await createTempDir();
+    const uri = 'https://generativelanguage.googleapis.com/v1beta/files/abc123:download?alt=media';
+    const agent = createVideoAgent({
+      uri,
+      mimeType: 'video/mp4',
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response('gemini-video-bytes', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const result = await agent.generateVideo('ski recovery product shot', { outputDirectory });
+
+      expect(result.success).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [downloadedUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(downloadedUrl).toBe(`${uri}&key=test-gemini-key`);
+      expect(init.headers).toEqual({ 'x-goog-api-key': 'test-gemini-key' });
+      await expect(readFile(result.data!.filePath!, 'utf-8')).resolves.toBe('gemini-video-bytes');
+    } finally {
+      if (previousKey === undefined) {
+        delete process.env.GEMINI_API_KEY;
+      } else {
+        process.env.GEMINI_API_KEY = previousKey;
+      }
+    }
+  });
+
+  it('uses the SDK files.download helper for URI-backed Veo results when available', async () => {
+    const outputDirectory = await createTempDir();
+    const video = {
+      uri: 'https://generativelanguage.googleapis.com/v1beta/files/abc123:download?alt=media',
+      mimeType: 'video/mp4',
+    };
+    const agent = createVideoAgent(video);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const download = vi.fn().mockImplementation(async ({ downloadPath }: { downloadPath: string }) => {
+      await writeFile(downloadPath, 'sdk-downloaded-bytes');
+    });
+    (
+      agent as unknown as {
+        genAI: { files: { download: ReturnType<typeof vi.fn> } };
+      }
+    ).genAI.files = { download };
+
+    const result = await agent.generateVideo('ski recovery product shot', { outputDirectory });
+
+    expect(result.success).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(download).toHaveBeenCalledWith({
+      file: video,
+      downloadPath: result.data?.filePath,
+    });
+    await expect(readFile(result.data!.filePath!, 'utf-8')).resolves.toBe('sdk-downloaded-bytes');
   });
 
   it('persists URI-backed clips as clip_N files in generateFullVideo', async () => {

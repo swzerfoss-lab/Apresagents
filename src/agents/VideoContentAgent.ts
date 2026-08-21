@@ -381,23 +381,10 @@ Always create prompts that will generate cinematic, on-brand video content captu
             }
             fs.writeFileSync(filePath, buffer);
             videoData.filePath = filePath;
-          } else if (videoData.videoUrl) {
-            // Download from URL with a hard deadline so a stalled provider
-            // connection cannot hang workflow/API video generation forever.
-            const videoResponse = await fetch(videoData.videoUrl, {
-              signal: AbortSignal.timeout(180_000),
-            });
-            if (!videoResponse.ok) {
-              throw new Error(
-                `Video download failed with status ${videoResponse.status} ${videoResponse.statusText}`.trim()
-              );
-            }
-            const buffer = Buffer.from(await videoResponse.arrayBuffer());
-            validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
-            if (buffer.length === 0) {
-              throw new Error('Downloaded video was empty');
-            }
-            fs.writeFileSync(filePath, buffer);
+          } else if (generatedVideoResult.video?.uri || videoData.videoUrl) {
+            // Gemini/Vertex Veo normally returns a URI with videoBytes unset.
+            // Bare fetch of that URI 403s without the API key / SDK download.
+            await this.persistUriBackedVideo(generatedVideoResult.video, filePath);
             videoData.filePath = filePath;
           } else {
             throw new Error('No downloadable video data returned by provider');
@@ -412,6 +399,124 @@ Always create prompts that will generate cinematic, on-brand video content captu
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error generating video';
       return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Persist a URI-backed Veo result. Prefer the SDK download helper (handles
+   * Gemini file URIs and Vertex GCS), then authenticated fetch for Gemini API.
+   */
+  private async persistUriBackedVideo(
+    video: { uri?: string } | undefined,
+    filePath: string
+  ): Promise<void> {
+    const files = (
+      this.genAI as {
+        files?: { download?: (params: { file: unknown; downloadPath: string }) => Promise<unknown> };
+      } | null
+    )?.files;
+
+    if (video && typeof files?.download === 'function') {
+      try {
+        await this.withDownloadDeadline(
+          Promise.resolve(files.download({ file: video, downloadPath: filePath })),
+          'Video download timed out'
+        );
+        this.assertPersistedVideoFile(filePath);
+        return;
+      } catch (sdkDownloadError) {
+        // Gemini file URIs can still be fetched with the API key if the SDK
+        // helper rejects a particular response shape.
+        if (!video.uri) {
+          throw sdkDownloadError;
+        }
+      }
+    }
+
+    const uri = video?.uri;
+    if (!uri) {
+      throw new Error('No downloadable video data returned by provider');
+    }
+
+    const { url, headers } = this.authorizeGeminiVideoDownload(uri);
+    const videoResponse = await fetch(url, {
+      signal: AbortSignal.timeout(180_000),
+      headers,
+      redirect: 'follow',
+    });
+    if (!videoResponse.ok) {
+      throw new Error(
+        `Video download failed with status ${videoResponse.status} ${videoResponse.statusText}`.trim()
+      );
+    }
+    const buffer = Buffer.from(await videoResponse.arrayBuffer());
+    validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
+    if (buffer.length === 0) {
+      throw new Error('Downloaded video was empty');
+    }
+    fs.writeFileSync(filePath, buffer);
+  }
+
+  private authorizeGeminiVideoDownload(uri: string): { url: string; headers: Record<string, string> } {
+    const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+    if (!apiKey || !this.isGeminiMediaUri(uri)) {
+      return { url: uri, headers: {} };
+    }
+
+    const headers = { 'x-goog-api-key': apiKey };
+    if (/[?&]key=/.test(uri)) {
+      return { url: uri, headers };
+    }
+
+    const separator = uri.includes('?') ? '&' : '?';
+    return { url: `${uri}${separator}key=${encodeURIComponent(apiKey)}`, headers };
+  }
+
+  private isGeminiMediaUri(uri: string): boolean {
+    try {
+      const hostname = new URL(uri).hostname.toLowerCase();
+      return (
+        hostname === 'generativelanguage.googleapis.com' ||
+        hostname.endsWith('.generativelanguage.googleapis.com')
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private assertPersistedVideoFile(filePath: string): void {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      throw new Error('Provider download did not write a video file');
+    }
+    const size = fs.statSync(filePath).size;
+    if (size === 0) {
+      throw new Error('Downloaded video was empty');
+    }
+    if (size > MAX_VIDEO_SIZE) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch {
+        // Best-effort cleanup of the oversized download.
+      }
+      throw new Error(
+        `Video size (${(size / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed (${(MAX_VIDEO_SIZE / 1024 / 1024).toFixed(0)}MB)`
+      );
+    }
+  }
+
+  private async withDownloadDeadline<T>(promise: Promise<T>, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), 180_000);
+        }),
+      ]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
   }
 
