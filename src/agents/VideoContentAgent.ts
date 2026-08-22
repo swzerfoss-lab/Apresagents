@@ -405,6 +405,10 @@ Always create prompts that will generate cinematic, on-brand video content captu
   /**
    * Persist a URI-backed Veo result. Prefer the SDK download helper (handles
    * Gemini file URIs and Vertex GCS), then authenticated fetch for Gemini API.
+   *
+   * Each writer uses its own temp path and is renamed onto filePath only after
+   * validation. A timed-out SDK download keeps running; writing the same final
+   * path from fetch would let that late write corrupt a successful save.
    */
   private async persistUriBackedVideo(
     video: { uri?: string } | undefined,
@@ -417,14 +421,22 @@ Always create prompts that will generate cinematic, on-brand video content captu
     )?.files;
 
     if (video && typeof files?.download === 'function') {
+      const sdkTempPath = `${filePath}.${randomUUID()}.sdk.tmp`;
       try {
         await this.withDownloadDeadline(
-          Promise.resolve(files.download({ file: video, downloadPath: filePath })),
+          Promise.resolve(files.download({ file: video, downloadPath: sdkTempPath })),
           'Video download timed out'
         );
-        this.assertPersistedVideoFile(filePath);
+        this.assertPersistedVideoFile(sdkTempPath);
+        fs.renameSync(sdkTempPath, filePath);
         return;
       } catch (sdkDownloadError) {
+        const timedOut =
+          sdkDownloadError instanceof Error && sdkDownloadError.message === 'Video download timed out';
+        // A timeout leaves the SDK writing sdkTempPath; do not unlink it.
+        if (!timedOut) {
+          this.tryUnlink(sdkTempPath);
+        }
         // Gemini file URIs can still be fetched with the API key if the SDK
         // helper rejects a particular response shape.
         if (!video.uri) {
@@ -438,23 +450,39 @@ Always create prompts that will generate cinematic, on-brand video content captu
       throw new Error('No downloadable video data returned by provider');
     }
 
-    const { url, headers } = this.authorizeGeminiVideoDownload(uri);
-    const videoResponse = await fetch(url, {
-      signal: AbortSignal.timeout(180_000),
-      headers,
-      redirect: 'follow',
-    });
-    if (!videoResponse.ok) {
-      throw new Error(
-        `Video download failed with status ${videoResponse.status} ${videoResponse.statusText}`.trim()
-      );
+    const fetchTempPath = `${filePath}.${randomUUID()}.fetch.tmp`;
+    try {
+      const { url, headers } = this.authorizeGeminiVideoDownload(uri);
+      const videoResponse = await fetch(url, {
+        signal: AbortSignal.timeout(180_000),
+        headers,
+        redirect: 'follow',
+      });
+      if (!videoResponse.ok) {
+        throw new Error(
+          `Video download failed with status ${videoResponse.status} ${videoResponse.statusText}`.trim()
+        );
+      }
+      const buffer = Buffer.from(await videoResponse.arrayBuffer());
+      validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
+      if (buffer.length === 0) {
+        throw new Error('Downloaded video was empty');
+      }
+      fs.writeFileSync(fetchTempPath, buffer);
+      fs.renameSync(fetchTempPath, filePath);
+    } finally {
+      this.tryUnlink(fetchTempPath);
     }
-    const buffer = Buffer.from(await videoResponse.arrayBuffer());
-    validateBufferSize(buffer, MAX_VIDEO_SIZE, 'Video');
-    if (buffer.length === 0) {
-      throw new Error('Downloaded video was empty');
+  }
+
+  private tryUnlink(filePath: string): void {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {
+      // Best-effort cleanup of a temp download.
     }
-    fs.writeFileSync(filePath, buffer);
   }
 
   private authorizeGeminiVideoDownload(uri: string): { url: string; headers: Record<string, string> } {

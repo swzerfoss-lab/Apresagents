@@ -322,9 +322,49 @@ describe('VideoContentAgent.generateVideo local persistence', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(download).toHaveBeenCalledWith({
       file: video,
-      downloadPath: result.data?.filePath,
+      downloadPath: expect.stringMatching(/\.sdk\.tmp$/),
     });
+    expect(download.mock.calls[0]?.[0]?.downloadPath).not.toBe(result.data?.filePath);
     await expect(readFile(result.data!.filePath!, 'utf-8')).resolves.toBe('sdk-downloaded-bytes');
+  });
+
+  it('does not let a timed-out SDK download overwrite a successful fetch fallback', async () => {
+    const outputDirectory = await createTempDir();
+    const video = {
+      uri: 'https://example.com/generated-video.mp4',
+      mimeType: 'video/mp4',
+    };
+    const agent = createVideoAgent(video);
+    const fetchMock = vi.fn().mockResolvedValue(new Response('fetch-fallback-bytes', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    let sdkDownloadPath: string | undefined;
+    const download = vi.fn().mockImplementation(({ downloadPath }: { downloadPath: string }) => {
+      sdkDownloadPath = downloadPath;
+      return new Promise(() => {
+        // Hung SDK transfer — still writes after the deadline.
+      });
+    });
+    (
+      agent as unknown as {
+        genAI: { files: { download: ReturnType<typeof vi.fn> } };
+      }
+    ).genAI.files = { download };
+
+    vi.useFakeTimers();
+    const resultPromise = agent.generateVideo('ski recovery product shot', { outputDirectory });
+    await vi.advanceTimersByTimeAsync(180_000);
+    const result = await resultPromise;
+    vi.useRealTimers();
+
+    expect(result.success).toBe(true);
+    expect(result.data?.filePath).toBeTruthy();
+    expect(sdkDownloadPath).toBeTruthy();
+    expect(sdkDownloadPath).not.toBe(result.data?.filePath);
+    await expect(readFile(result.data!.filePath!, 'utf-8')).resolves.toBe('fetch-fallback-bytes');
+
+    await writeFile(sdkDownloadPath!, 'late-sdk-bytes');
+    await expect(readFile(result.data!.filePath!, 'utf-8')).resolves.toBe('fetch-fallback-bytes');
   });
 
   it('persists URI-backed clips as clip_N files in generateFullVideo', async () => {
